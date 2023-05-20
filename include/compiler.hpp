@@ -3,6 +3,7 @@
 
 #include <string>
 #include <algorithm>
+#include <variant>
 
 #include "env.hpp"
 #include "context.hpp"

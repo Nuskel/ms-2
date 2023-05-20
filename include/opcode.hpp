@@ -16,6 +16,9 @@ namespace ms {
     LEA,
     MOV,
     PUSH,
+
+    /* POP <target> -- writes highest stack value to a memory cell */
+    POP,
     
     CALL,
     RET,
@@ -36,7 +39,8 @@ namespace ms {
   };
 
   static MS_VALUE_MAP(Op, OpInfo) operations {
-    { Op::ADD, OpInfo { Op::ADD, "ADD", 2 } }
+    { Op::ADD, OpInfo { Op::ADD, "ADD", 2 } },
+    { Op::POP, OpInfo { Op::POP, "POP", 1 } },
   };
   static MS_MAP_LOOKUP(getOpInfo, operations, Op, OpInfo, OpInfo {});
 

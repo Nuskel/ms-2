@@ -1,9 +1,21 @@
 #include "lang.hpp"
+#include "context.hpp"
 
 namespace ms {
 
+  SRef<Function> TypeDef::castfn(const Type type) {
+    return nullptr;
+  }
+
+  SRef<Function> TypeDef::opfn(const Operation op, const Type param) {
+    return nullptr;
+  }
+
+  // --
+
   Module::Module(const Symbol& symbol) {
     this->symbol = symbol;
+    this->type = EntityType::MODULE;
   }
 
   Status Namespace::add(SRef<Entity> entity) {
@@ -34,6 +46,7 @@ namespace ms {
   Expression& Expression::left() {
     if (!leftChild) {
       leftChild = std::make_unique<Expression>();
+      leftChild->isRoot = false;
     }
 
     return *leftChild;
@@ -42,6 +55,7 @@ namespace ms {
   Expression& Expression::right() {
     if (!rightChild) {
       rightChild = std::make_unique<Expression>();
+      rightChild->isRoot = false;
     }
 
     return *rightChild;
@@ -74,6 +88,7 @@ namespace ms {
 
   bool validIdentifier(const std::string_view ident) {
     static const std::vector<std::string> restrictedNames {
+      Symbol::NONE.value,
       "__main__",
     };
 
@@ -86,54 +101,14 @@ namespace ms {
     return ident.length() > 0 && ident[0] != '#';
   }
 
-  SRef<Module> createModule(const Source& source) {
+  SRef<Module> createModule(Context& ctx, const Source& source) {
     SRef<Module> module { std::make_shared<Module>(Symbol { source.name }) };
+
+    module->parent = ctx.globalScope;
 
     return module;
   }
 
   // --
-
-  // !! NOT SUFFICIENT !!
-  // must depend on operation
-  Type combinedType(const Type left, const Type right) {
-    switch (left.typeClass) {
-      case TypeClass::LITERAL: {
-        if (left.typeDef == types::IntType.typeDef) {
-          if (right.typeClass == TypeClass::PROTO) {
-            const SRef<Function> castfn = right.typeDef->castfn(left);
-
-            if (!castfn)
-              
-          }
-        }
-
-        break;
-      }
-
-      default:
-        break;
-    }
-
-    /* Cases:
-     *  A) function invocation *function name* (params) -> Type C
-     *  B) "simple combination" = fallback for A + B = *always* a type C; predefined
-     */
-    return Type { .name = left.name + "&" + right.name, .typeClass = TypeClass::LITERAL, .typeDef = nullptr };
-  }
-
-  // -- test
-
-  struct FInvocation {
-
-    std::vector<void*> params;
-    Type result;
-
-  };
-
-  Status invoke(Context& ctx, Function& fn, /* inout */ FInvocation& invocation) {
-    // check param conditions ?
-
-  }
 
 }

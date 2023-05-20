@@ -23,11 +23,16 @@ namespace ms {
 
 }
 
+void test();
+
 int main(int argc, char* argv[]) {
   using namespace ms;
 
+  test();
+
   //ms::printBanner();
-  ms::debug::printsf("$b<$2!$9> MultiScript v_3.0");
+  debug::printsf("$b<$2!$9> MultiScript 2.1");
+  debug::printsf("Default types: %%, %%, %%", types::Int, types::Decimal, types::String);
 
   ms::Context ctx;
 
@@ -46,13 +51,29 @@ int main(int argc, char* argv[]) {
   ms::parse(ctx, ins);
 
   debug::printsf("====");
+  debug::printsf("");
+  debug::printsf("%%", structureString(ctx.globalScope));
   debug::printsf("%%", structureString(ctx.module));
+
+  debug::printsf("Literals:");
+
+  for (size_t i = 0; i < ctx.literals.literals.size(); i++) {
+    debug::printsf(" %%: %% @ %%", i, ctx.literals.literals[0].type,
+      SFmt<Literal>{}.toVerboseString(ctx.literals.literals[0]));
+  }
   
+  debug::printsf("");
   printInstructions(ctx.instructions);
 
   // --
 
-  debug::printsf("Integral: %%", types::IntType.name);
+  // ...
 
   return 0;
+}
+
+void test() {
+  using namespace ms;
+
+  // TODO: test something
 }

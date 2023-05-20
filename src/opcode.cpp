@@ -1,5 +1,6 @@
 #include "opcode.hpp"
 #include "debug.hpp"
+#include "sformats.hpp"
 
 namespace ms {
 
@@ -24,7 +25,10 @@ namespace ms {
 
     instructions.push_back(i);
 
-    debug::printsf("$%%", i);
+    // TODO: if debug
+    const auto info = getOpInfo(op);
+
+    debug::printsf("`2%% %% %%", info.name, source, target);
 
     return Status::SUCCESS;
   }

@@ -130,6 +130,7 @@ namespace ms {
         case 10 /* new line */:
           lexer.commit();
           lexer.col = -1;
+          lexer.scol = 0;
           lexer.line++;
 
           break;
@@ -241,7 +242,7 @@ namespace ms {
           t.value = content;
           t.type = Tok::L_INTEGRAL;
           t.line = line;
-          t.col = col;
+          t.col = scol;
           t.tcol = tcol;
           t.integral = parseInt(content);
 
@@ -252,6 +253,9 @@ namespace ms {
         push(tok);
     }
 
+    // start column of next token is next token
+    scol = col + 1;
+
     resetBuf();
   }
 
@@ -261,7 +265,7 @@ namespace ms {
     t.value = buf.str();
     t.type = tok;
     t.line = line;
-    t.col = col;
+    t.col = scol;
     t.tcol = tcol;
 
     source.tokens.push_back(t);
@@ -273,7 +277,7 @@ namespace ms {
     t.value = std::to_string(c);
     t.type = strToTok(t.value);
     t.line = line;
-    t.col = col;
+    t.col = scol;
     t.tcol = tcol;
 
     source.tokens.push_back(t);
@@ -305,19 +309,19 @@ namespace ms {
     std::string lstr { getLine(line) };
     int offset = file.length() + 5;
     
-    offset += std::log10(line + 1) + 1;
+    // offset += std::log10(line + 1) + 1;
     offset += std::log10(from + 1) + 1;
 
     buf << debug::Console::Modifier(debug::ChatColor::FG_RED);
     buf << "(" << file << "|" << (line + 1) << ":" << (from + 1) << ") ";
     buf << debug::Console::Modifier(debug::ChatColor::FG_WHITE);
-    buf << lstr << '\n' << std::string(from + offset, ' ');
+    buf << lstr << '\n' << std::string(from + offset + 1, ' ');
     buf << debug::Console::Modifier(debug::ChatColor::FG_RED);
 
     if (from == to) {
       buf << "^";
     } else {
-      // line marker
+      buf << "^" << std::string(to - from, '~');
     }
 
     debug::resetStream(buf);
@@ -357,6 +361,12 @@ namespace ms {
       token = access;
 
     return Status::SUCCESS;
+  }
+
+  // TOKEN META
+
+  TokenClass calssifiyToken(const Tok token) {
+    
   }
 
 }

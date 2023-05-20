@@ -19,6 +19,7 @@ namespace ms {
   struct Type;
   struct Entity;
   struct Namespace;
+  struct Function;
 
 }
 
@@ -45,6 +46,8 @@ namespace ms {
     std::string value;
     int modifiers;
 
+    const static Symbol NONE;
+
     Symbol() {}
     Symbol(const std::string_view name) : value(name) {}
 
@@ -68,6 +71,8 @@ namespace ms {
     }
 
   };
+
+  inline const Symbol Symbol::NONE = Symbol("__none__");
 
   struct SymbolHash {
     
@@ -106,7 +111,19 @@ namespace ms {
 
     OpClass type { OpClass::UNKNOWN };
     char rank { 2 }; // unary, binary, tertiary
+
+    inline friend bool operator ==(const Operation& a, const Operation& b) {
+      return a.type == b.type;
+    }
     
+  };
+
+  struct OperationHash {
+    
+    size_t operator()(const ms::Operation& op) const {
+      return std::hash<char>{}((char) op.type);
+    }
+
   };
 
   struct Operations {
@@ -119,7 +136,22 @@ namespace ms {
   /* ********** */
 
   struct Type;
-  enum class TypeClass;
+
+  enum class TypeClass : int {
+
+    NONE,
+    LITERAL,
+    REFERENCE,
+
+    FUNCTION,
+    PROTO,
+    OBJECT,
+    ARRAY,
+    TUPEL, // like array with different types
+
+    SIMPLE
+
+  };
 
   struct TypeDef {
 
@@ -128,30 +160,83 @@ namespace ms {
      * - Function (functions are returnables types)
      */
 
-    virtual SRef<Function> castfn(Type target) = 0;
+    Symbol name { Symbol::NONE };
+    TypeClass typeClass { TypeClass::NONE };
 
-    virtual Status invokeOp(const Operation op, const std::vector<Type>& types) = 0;
+    virtual ~TypeDef() {}
 
-  };
+    virtual SRef<Function> castfn(const Type target);
 
-  enum class TypeClass {
+    virtual SRef<Function> opfn(const Operation op, const Type target);
 
-    NONE,
-    LITERAL,
-    REFERENCE,
-    FUNCTION,
-    PROTO
+    friend inline bool operator==(const TypeDef& left, const TypeDef& right) {
+      return left.typeClass == right.typeClass && &left.name == &right.name;
+    }
 
   };
 
   struct Type {
 
-    std::string name;
-    TypeClass typeClass;
-    SRef<TypeDef> typeDef;
+    SRef<TypeDef> def;
+
+    Type() {}
+    Type(const SRef<TypeDef>& typeDef) : def(typeDef) {}
+
+    inline Type& operator =(const Type& another) {
+      def = another.def;
+
+      return *this;
+    }
+
+    inline Type& operator=(const SRef<TypeDef>& typeDef) {
+      def = typeDef;
+
+      return *this;
+    }
+
+    inline bool hasDef() const {
+      return def ? true : false;
+    }
+
+    inline const Symbol name() const {
+      return def ? def->name : Symbol::NONE;
+    }
+
+    inline const TypeClass typeClass() const {
+      return def ? def->typeClass : TypeClass::NONE;
+    }
+
+    friend inline bool operator==(const Type& type, const TypeClass typeClass) {
+      return type.typeClass() == typeClass;
+    }
 
     friend inline bool operator==(const Type& left, const Type& right) {
-      return left.typeClass == right.typeClass;
+      return left.def == right.def;
+    }
+
+  };
+
+  /*
+  struct Type {
+
+    std::string name { "unnamed" };
+    TypeClass typeClass { TypeClass::NONE };
+    TypeDef* typeDef { nullptr };
+
+    friend inline bool operator==(const Type& left, const Type& right) {
+      return left.typeClass == right.typeClass && left.typeDef == right.typeDef;
+    }
+
+  };
+  */
+
+  struct TypeHash {
+    
+    size_t operator()(const ms::Type& type) const {
+      const size_t th = std::hash<int>{}((int) type.typeClass());
+      const size_t sh = SymbolHash{}(type.name());
+
+      return th ^ (sh << 1);
     }
 
   };
@@ -171,8 +256,16 @@ namespace ms {
     UNKNOWN,
 
     MODULE,
+    NAMESPACE,
+    PROTO,
     FUNCTION,
     VAR
+
+  };
+
+  struct Adressable {
+
+    msx::Address address;
 
   };
 
@@ -191,7 +284,7 @@ namespace ms {
     }
 
     inline bool isNamespace() {
-      return type == EntityType::MODULE;
+      return (int) type >= (int) EntityType::MODULE && (int) type <= (int) EntityType::FUNCTION;
     }
 
   };
@@ -200,7 +293,9 @@ namespace ms {
 
     HMap<Symbol, SRef<Entity>, SymbolHash> entities;
 
-    Namespace() {}
+    Namespace() {
+      type = EntityType::NAMESPACE;
+    }
 
     virtual Status add(SRef<Entity>);
 
@@ -216,7 +311,9 @@ namespace ms {
 
     SRef<Source> source { nullptr };
 
-    Module() {}
+    Module() {
+      type = EntityType::MODULE;
+    }
 
     Module(const Symbol& symbol);
 
@@ -225,6 +322,13 @@ namespace ms {
   struct Variable : public Entity {
 
     Type valueType;
+    msx::Address address; // TODO: public Adressable
+
+    Variable() {}
+    Variable(const Symbol& p_symbol) {
+      symbol = p_symbol;
+      type = EntityType::VAR;
+    }
 
   };
 
@@ -241,12 +345,16 @@ namespace ms {
 
   // --
 
-  
-
   struct Proto : public Namespace, public TypeDef {
 
-    HMap<Type, SRef<Function>> castFunctions;
-    HMap<Operation, SRef<Function>> opFunctions;
+    HMap<Type, SRef<Function>, TypeHash> castFunctions;
+    HMap<Operation, SRef<Function>, OperationHash> opFunctions;
+
+    Proto() {
+      type = EntityType::PROTO;
+    }
+
+    SRef<Function> castfn(const Type type);
 
     inline SRef<Function> findOpFunc(const Operation& op) {
       const auto& entry = opFunctions.find(op);
@@ -256,11 +364,17 @@ namespace ms {
 
   };
 
+  struct Array : public Entity, public TypeDef {
+
+    Type arrayType;
+
+  };
+
   struct Literal {
 
     using ID = long; // Literal ID
     using LiteralValue = void*;
-    using Intermediate = std::variant<msx::Integral, msx::Decimal>;
+    using Intermediate = std::variant<msx::Integral, msx::Decimal, std::string>;
 
     ID id { -1 };
     Type type;
@@ -329,66 +443,53 @@ namespace ms {
     return std::get<msx::Integral>(std::get<Literal>(value.content).value);
   }
 
-  // DEFAULT TYPES
+  namespace stdtypes {
+
+    struct IntDef : public Proto {
+
+      IntDef() {
+        typeClass = TypeClass::SIMPLE;
+        symbol = name = Symbol("int"); // TODO: mod = LANG_TYPE
+      }
+
+    };
+
+    struct DecimalDef : public Proto {
+
+      DecimalDef() {
+        typeClass = TypeClass::SIMPLE;
+        symbol = name = Symbol("decimal");
+      }
+
+    };
+
+    struct StringDef : public Proto {
+
+      StringDef() {
+        typeClass = TypeClass::SIMPLE;
+        symbol = name = Symbol("string");
+      }
+
+    };
+
+    struct UnknownDef : public TypeDef {
+
+      UnknownDef() {
+        typeClass = TypeClass::NONE;
+        name = Symbol::NONE;
+      }
+
+    };
+
+  }
+
   namespace types {
 
-    struct SimpleType : public TypeDef {
+    inline const Type Int { std::make_shared<stdtypes::IntDef>() };
+    inline const Type Decimal { std::make_shared<stdtypes::DecimalDef>() };
+    inline const Type String { std::make_shared<stdtypes::StringDef>() };
 
-      inline Status invokeOp(const Operation op, const std::vector<Type>& types) {
-        return Status::ERR_INVALID_TYPE;
-      }
-
-    };
-
-    struct IntDef : public SimpleType {
-
-      inline Status invokeOp(const Operation op, const std::vector<Type>& types) {
-        if (op.type == OpClass::ADD && types.size() == 1) {
-          Type t { types[0] };
-
-          if (t.typeDef.get() == this) {
-            // int + int OK
-          }
-
-          SRef<Function> castfn = t.typeDef->castfn(t);
-
-          if (castfn) {
-            // int + (int) any OK
-          }
-
-          if (t.typeClass == TypeClass::PROTO) {
-            Proto* proto = dynamic_cast<Proto*>(t.typeDef.get());
-            SRef<Function> opfn = proto->findOpFunc(op);
-
-            if (opfn) {
-              // int + fncall() OK
-            }
-
-            // TODO: is there a standard concat function??
-          }
-        }
-
-        return Status::ERR_INVALID_TYPE;
-      }
-
-    };
-
-    static Type IntType = Type {
-      .name = "int",
-      .typeClass = TypeClass::LITERAL,
-      .typeDef = std::make_shared<IntDef>()
-    };
-
-    static Type Invalid = Type {
-      .name = "invalid",
-      .typeClass = TypeClass::NONE
-    };
-
-    static Type Reference = Type {
-      .name = "reference",
-      .typeClass = TypeClass::REFERENCE,
-      .typeDef = nullptr
-    };
+    inline const Type Unknown { std::make_shared<stdtypes::UnknownDef>() };
 
   }
 
@@ -396,7 +497,7 @@ namespace ms {
 
   struct ExpressionResult {
 
-    Type type { .name = "__unset__" };
+    Type type;
     Value value;
 
   };
@@ -404,11 +505,16 @@ namespace ms {
   struct Expression {
 
     std::string debugName;
+    bool isRoot { true };
     bool isTerminator { false };
+    bool hasAssignment { false };
 
     ExpressionResult result;
     URef<Expression> leftChild;
     URef<Expression> rightChild;
+
+    size_t startToken {0};
+    size_t endToken {0};
 
     Expression() {}
     virtual ~Expression() {
@@ -469,11 +575,7 @@ namespace ms {
    */
   EntityMatch lookup(EntityLookup);
 
-  SRef<Module> createModule(const Source&);
-
-  /* */
-
-  Type combinedType(Type left, Type right);
+  SRef<Module> createModule(Context& ctx, const Source&);
 
   /* UTIL */
 
@@ -486,12 +588,18 @@ namespace ms {
     return std::dynamic_pointer_cast<T>(entity);
   }
 
+  inline void setVarType(SRef<Entity> var, Type type) {
+    if (var && var->type == EntityType::VAR) {
+      castEntity<Variable>(var)->valueType = type;
+    }
+  }
+
   inline Type varType(SRef<Entity> entity) {
     if (entity && entity->type == EntityType::VAR) {
       return castEntity<Variable>(entity)->valueType;
     }
 
-    return types::Invalid;
+    return types::Unknown;
   }
 
   inline std::string entityName(SRef<Entity> entity) {

@@ -4,6 +4,9 @@
 #include <filesystem>
 #include <string>
 #include <sstream>
+#include <vector>
+#include <initializer_list>
+#include <memory>
 
 namespace ms {
 
@@ -79,6 +82,42 @@ namespace ms {
         return this->size_m;
       }
   };
+
+  template <typename T, typename X = std::reference_wrapper<T>>
+  struct RefList : public std::vector<X> {
+
+    explicit RefList(std::initializer_list<X> l) :
+      std::vector<X>(l) {}
+
+    inline T& operator[](size_t index) const {
+      return this->at(index).get();
+    }
+
+  };
+
+  template <int Min, int Max, typename Val>
+  struct Range {
+
+    constexpr int min = Min;
+    constexpr int max = Max;
+    Val val;
+
+    Range(const Val& p_val) : val(p_val) {}
+
+  };
+
+  /* ------- */
+
+  /* Creates a RefList using the varg params. */
+  template<typename... Args, typename T = std::common_type_t<Args...>>
+  RefList<T> reflist(Args&&... args) {
+    return RefList<T> { std::forward<Args>(args)... };
+  }
+
+  template <typename B, typename D>
+  inline std::shared_ptr<D> derive(std::shared_ptr<B> base) {
+    return std::dynamic_pointer_cast<D>(base);
+  }
 
   inline bool fexists(const std::string& filename) {
     std::filesystem::path dpath { filename };

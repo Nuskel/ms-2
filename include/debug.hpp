@@ -36,7 +36,7 @@ namespace ms {
                 return buf.str();
             }
 
-            return "{}";
+            return "{" + std::string(typeid(x).name()) + "}";
         }
 
     };

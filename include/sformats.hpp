@@ -66,7 +66,10 @@ namespace ms {
         std::string toString(EntityType type) {
             switch (type) {
                 case EntityType::VAR: return "VAR";
+                case EntityType::PROTO: return "PROTO";
+                case EntityType::NAMESPACE: return "NAMESPACE";
                 case EntityType::MODULE: return "MODULE";
+                case EntityType::UNKNOWN: return "UNKNOWN";
 
                 default:
                     return std::string("(EntityType) ") + std::to_string((int) type);
@@ -76,18 +79,56 @@ namespace ms {
     };
 
     template <>
+    struct SFmt<Literal> {
+
+        std::string toString(const Literal& lit) {
+            if (lit.type == types::String) {
+                return "@" + std::to_string(lit.id);
+            } else if (lit.type == types::Int) {
+                return std::to_string(std::get<msx::Integral>(lit.value));
+            } else if (lit.type == types::Decimal) {
+                return std::to_string(std::get<msx::Decimal>(lit.value));
+            }
+        
+            return "unknown literal";
+        }
+
+        std::string toVerboseString(const Literal& lit) {
+            if (lit.type == types::String) {
+                return "'" + std::get<std::string>(lit.value) + "'";
+            } else if (lit.type == types::Int) {
+                return std::to_string(std::get<msx::Integral>(lit.value)) + "i";
+            } else if (lit.type == types::Decimal) {
+                return std::to_string(std::get<msx::Decimal>(lit.value)) + "d";
+            }
+        
+            return "unknown literal";
+        }
+
+    };
+
+    template <>
     struct SFmt<Type> {
 
         std::string toString(Type type) {
-            switch (type.typeClass) {
-                case TypeClass::LITERAL:
-                    return type.name;
+            switch (type.typeClass()) {
+                case TypeClass::SIMPLE:
+                    return type.name().value;
 
                 case TypeClass::REFERENCE:
-                    return type.name + "&";
+                    return type.name().value + "&";
+
+                case TypeClass::OBJECT:
+                    return type.name().value + "{}";
+
+                case TypeClass::ARRAY:
+                    return type.name().value + "[]";
+
+                case TypeClass::TUPEL:
+                    return type.name().value + "()";
 
                 default:
-                    return type.name + "?";
+                    return type.name().value + "?";
             }
         }
 
@@ -99,14 +140,23 @@ namespace ms {
         std::string toString(Value value) {
             switch (value.valueClass) {
                 case ValueClass::LITERAL:
-                    return std::to_string(value.asIntegral());
+                    return SFmt<Literal>{}.toString(std::get<Literal>(value.content));
 
                 case ValueClass::REFERENCE:
-                    return std::to_string(value.asAddress());
+                    return std::to_string(value.asAddress()) + "_r";
 
                 default:
                     return "Value<?>";
             }
+        }
+
+    };
+
+    template <>
+    struct SFmt<TypedValue> {
+
+        std::string toString(const TypedValue& tv) {
+            return debug::format("{%%, %%}", SFmt<Value>{}.toString(tv.value), SFmt<Type>{}.toString(tv.type));
         }
 
     };
@@ -119,6 +169,26 @@ namespace ms {
         }
 
     };
+
+    template <>
+    struct SFmt<memloc> {
+
+        std::string toString(const memloc& ml) {
+            switch (ml.type) {
+                case memloc::INTERMEDIATE:
+                    return "#" + std::to_string(ml.intermediate.integral);
+
+                case memloc::ADDR_LOCAL:
+                    return "l" + std::to_string(ml.offset);
+                
+                default:
+                    return "memloc(" + std::to_string(ml.type) + ")";
+            }
+        }
+
+    };
+
+    /* -------- */
 
     static inline void printSources(Context& ctx) {
         debug::printsf("Source Locations (%%):", ctx.sourceLocations.size());
@@ -174,6 +244,10 @@ namespace ms {
             // instruction name
             // str << stretch(info.a, 13);
             str << info.name;
+
+            if (info.params == 2) {
+                str << SFmt<memloc>{}.toString(ins.target) << " " << SFmt<memloc>{}.toString(ins.target);
+            }
 
             /*
             for (int j = 0; j < ins.paramCount(); j++)

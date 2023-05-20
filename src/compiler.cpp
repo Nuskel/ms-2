@@ -1,4 +1,7 @@
 #include "compiler.hpp"
+#include "lang.hpp"
+#include "env.hpp"
+#include "misc.hpp"
 #include "sformats.hpp"
 
 #define require(amount, token, msg) \
@@ -8,6 +11,12 @@
 #define leave(what) { what; break; }
 #define consume(n) i += n
 #define skip(n) i += n
+
+namespace ms {
+
+  memloc createMemloc(const Value& value);
+
+}
 
 namespace ms {
 
@@ -41,7 +50,10 @@ namespace ms {
     if (ctx.module)
       return ctx.throwd(Status::INTERNAL, "another module still has the context: %%", entityName(ctx.module));
 
-    ctx.module = createModule(source);
+    // TODO: more generic loadModule() function
+    //  -> get already created module
+    //  -> or createModule() + registerModule()
+    ctx.module = createModule(ctx, source);
     ctx.scope = ctx.module;
     ctx.registerModule(ctx.module);
 
@@ -53,7 +65,7 @@ namespace ms {
       const Token& token = source.tokens[i];
       bool nl = source.line < token.line; // new line
 
-      debug::printsf(" -- %% %%", token.type, token.value);
+      debug::printsf(" -- %% %% (%%:%%)", token.type, token.value, token.line, token.col);
 
       source.line = token.line;
 
@@ -101,22 +113,35 @@ namespace ms {
 
         case Tok::OP_ASSIGN: {
           std::string ident;
+          size_t pos = i - 1;
 
-          if ((s = source.readIdentifier(ident, i - 1)) != Status::SUCCESS)
-            leave(ctx.throwd(s, "expected target symbol"))
+          if ((s = source.readIdentifier(ident, pos)) != Status::SUCCESS)
+            leave(ctx.throwd(s, pos, "expected a symbol"))
 
           if (!validIdentifier(ident))
-            leave(ctx.throwd(Status::FAIL, "invalid identifier"))
+            leave(ctx.throwd(Status::FAIL, pos, "invalid identifier"))
 
           EntityMatch em = lookup(EntityLookup(ctx.module, ident));
 
           if (em.notFound())
-            leave(ctx.throwd(Status::FAIL, "unknown identifier '%%'", ident))
+            leave(ctx.throwd(Status::FAIL, pos, "unknown identifier '%%'", ident))
+
+          if (em.found->type != EntityType::VAR)
+            leave(ctx.throwd(Status::FAIL, pos, "cannot assign to %% <%%>, must be a variable", ident, em.found->type))
 
           Expression expr;
 
           if ((s = parseExpression(ctx, source, expr)) != Status::SUCCESS)
-            leave(ctx.throwd(s, "failed to parse expression"))
+            leave(ctx.throwd(s, expr.startToken, expr.endToken, "failed to parse expression"))
+
+          setVarType(em.found, expr.result.type);
+
+          // TODO: write value
+          memloc target;
+
+          // decide if a pop is needed
+          //  get info from expression if a ADD target value instruction was used and no pop is required!
+          // ctx.instructions.append(Op::POP, target);
 
           debug::printsf("[=] assigning '%%' to %% (%%)", ident, expr.result.type, "-");
 
@@ -164,6 +189,12 @@ namespace ms {
 
   // -- Expressions
 
+  Status handleFnCall(Context& ctx, SRef<Function> fn, const std::vector<TypedValue> params) {
+    Status s { Status::SUCCESS };
+
+    return s;
+  }
+
   Status parseTerminator(Context& ctx, Source& src, Expression& expr, size_t pos) {
     Status s { Status::SUCCESS };
 
@@ -184,6 +215,15 @@ namespace ms {
         ref.referenced = em.found;
 
         if (em.found) {
+          if (em.found->type == EntityType::PROTO) {
+            SRef<Proto> proto = castEntity<Proto>(em.found);
+
+            expr.result.type = proto;
+          } else {
+
+          }
+
+          // DEPRECATED
           /* References in expressions should always refer to previously declared variables.
            * Only declared and not defined variables hold the default value for the value type.
            */
@@ -191,15 +231,21 @@ namespace ms {
         } else
           return ctx.throwd(Status::FAIL, "unknown identifier '%%'", token.value);
         
-        expr.result.type = types::Reference;
+        //expr.result.type = types::Reference;
+        expr.result.type = ref.refType;
         expr.result.value = Value { ValueClass::REFERENCE, ref };
+
+        debug::printsf(" FOUND %% (%%) referencing %% at %%",
+          em.found->symbol, em.found->type, ref.refType, "address");
 
         break;
       }
 
       /* Literals are registered in {??} and referenced by an ID. */
 
-      case Tok::L_INTEGRAL: {
+      case Tok::L_INTEGRAL:
+      case Tok::L_DECIMAL:
+      case Tok::L_STRING: {
         Literal lit;
 
         if ((s = ctx.createLiteral(lit, token)) != Status::SUCCESS)
@@ -208,10 +254,8 @@ namespace ms {
         expr.result.type = lit.type;
         expr.result.value = Value { ValueClass::LITERAL, lit };
 
-        break;
-      }
+        debug::printsf(" LITERAL: %% -> %%", token.value, lit.id);
 
-      case Tok::L_STRING: {
         break;
       }
 
@@ -224,9 +268,15 @@ namespace ms {
     return s;
   }
 
-  Status callOpFunction(Context& ctx, const Type type, const std::vector<Type> params, const Operation op) {
-    if (!type.typeDef)
-      return ctx.throwd(Status::INTERNAL, "type <%%> has no definition", type.name);
+  Status handleBinaryOp(Context& ctx, const TypedValue left, const TypedValue right, const Operation op, Type& result) {
+    const Type& lt = left.type, rt = right.type;
+    const Value& lv = left.value, rv = right.value;
+
+    if (!lt.def)
+      return ctx.throwd(Status::INTERNAL, "type <%%> has no definition", lt.name());
+
+    if (!rt.def)
+      return ctx.throwd(Status::INTERNAL, "type <%%> has no definition", rt.name());
 
     // for each rank ... do ...
 
@@ -240,17 +290,97 @@ namespace ms {
     // 4) is there a generel op-function defined for those specific types?
     //   x := global_op_fn<operation>(left, right)
 
+    debug::printsf("callOpFunc %% %% %%", left, (int) op.type, right);
+
+    if (lt == TypeClass::SIMPLE) {
+      if (rt == TypeClass::SIMPLE) {
+        // TODO -> result type
+        // lookup combiner:
+        //  x := ((SimpleType*) type.typeDef)->ordinal()
+        //  y := ((SimpleType*) param.typeDef)->ordinal()
+        //  combinerfn := combfns[y * N_SIMPLE_TYPES + x]
+        //  combinerfn.apply(token_left, token_right, operation, context, source, instructions)
+
+        result = types::Int;
+
+        if (lv.valueClass == ValueClass::LITERAL && rv.valueClass == ValueClass::LITERAL) {
+
+          if (op.type == OpClass::ADD)
+            ctx.instructions.append(Op::ADD, createMemloc(lv), createMemloc(rv));
+
+          // TODO: more
+          //  getOpCodeForArithmeticOp(op)
+        }
+
+        // ctx.instructions.append(Op::ADD);
+      } else if (rt == TypeClass::PROTO) {
+        SRef<Function> castfn = rt.def->castfn(lt);
+
+        /* Only the direct castfn is needed. Other (indirect) conversions like int + a.b (with a.b as float)
+         * are not supported inexplicitely. An explicit cast: int + (<type the int can work with>) a.b is needed then!
+         */
+
+        if (castfn) {
+          return handleFnCall(ctx, castfn, { right });
+        }
+
+        // TODO: look for global opfn
+        
+        return ctx.throwd(Status::FAIL, "no suitable conversion of <%%> to operate with <%%> via %%", rt, lt, op);
+      } else {
+        return ctx.throwd(Status::FAIL, "simple types cannot operate with <%%>", rt.typeClass());
+      }
+    } else if (lt == TypeClass::OBJECT) {
+      if (rt == TypeClass::OBJECT) {
+
+      } else if (rt == TypeClass::PROTO) {
+
+      }
+
+      // result = lt
+
+      return ctx.throwd(Status::FAIL, "can only add other objects or protos to an object; provided <%%>", rt);
+    } else if (lt == TypeClass::ARRAY) {
+      // check type
+      // SRef<Array> array = lt.def;
+      //  if (array->valueType != rt) --> ERROR
+
+      SRef<Array> array = derive<TypeDef, Array>(lt.def);
+
+      if (array->arrayType != rt)
+        return ctx.throwd(Status::FAIL, "cannot add non matching array type: Array<%%> + <%%>", array->arrayType, rt);
+
+      // TODO: ADD -> array_add
+      ctx.instructions.append(Op::ADD, createMemloc(lv), createMemloc(rv));
+
+      result = lt;
+    } else if (lt == TypeClass::TUPEL) {
+      // accept everything ?
+    } else if (lt == TypeClass::PROTO) {
+      SRef<Function> opfn = lt.def->opfn(op, rt);
+
+      if (opfn) {
+        return handleFnCall(ctx, opfn, { right });
+      }
+
+      // TODO: look for global opfn
+
+      return ctx.throwd(Status::FAIL, "no operator function defined for type <%%>", lt.name());
+    } else {
+      return ctx.throwd(Status::FAIL, "cannot perform <%%> on <%%> and <%%>", op, lt, rt);
+    }
+
     return Status::SUCCESS;
   }
 
-  Status handleOperation(Context& ctx, Source& source, const std::vector<Expression&>& expressions, const Operation op) {
+  Status handleOperation(Context& ctx, Source& source, const RefList<Expression>& expressions, const Operation op, Type& result) {
     Status s { Status::SUCCESS };
 
     if (op.rank != expressions.size())
-      return ctx.throwd(Status::INTERNAL, "operation <%%> expects %% expressions; provided: %%", op.type, op.rank, expressions.size());
+      return ctx.throwd(Status::INTERNAL, "operation <%%> expects %% expression(s); provided: %%", op.type, op.rank, expressions.size());
 
-    if (std::any_of(expressions.begin(), expressions.end(), [](Expression& e) { return !e.isTerminator; }))
-      return ctx.throwd(Status::INTERNAL, "cannot execute operation since not each operation is fully reduced");
+    if (std::any_of(expressions.begin(), expressions.end(), [](const auto& e) { return !e.get().isTerminator; }))
+      return ctx.throwd(Status::INTERNAL, "cannot execute operation since not each operation side is fully reduced");
 
     /* Possible combinations: [int, dec]x[int, dec] |C| = 4
      */
@@ -261,11 +391,10 @@ namespace ms {
       }
 
       case OpRank::BINARY: {
-        Type lt { expressions[0].result.type };
-        Type rt { expressions[1].result.type };
-        std::vector<Type> params {{ rt }};
+        TypedValue lt { expressions[0].result.type, expressions[0].result.value };
+        TypedValue rt { expressions[1].result.type, expressions[1].result.value };
 
-        s = callOpFunction(ctx, lt, params, op);
+        s = handleBinaryOp(ctx, lt, rt, op, result);
 
         break;
       }
@@ -295,6 +424,8 @@ namespace ms {
 
     debug::printsf("!(%%, %%):%% - %%", from, to, d, source.concat(from, to));
     expr.debugName = source.concat(from, to);
+    expr.startToken = from;
+    expr.endToken = to;
 
     // -- single token
     if (d == 1) {
@@ -341,6 +472,8 @@ namespace ms {
         sleft = parseExpression(ctx, source, left, from, i);
         sright = parseExpression(ctx, source, right, i + 1, to);
 
+        /*
+
         const Type resultType = combinedType(left.result.type, right.result.type);
 
         if (resultType == types::Invalid) {
@@ -357,6 +490,24 @@ namespace ms {
         expr.result.type = resultType;
 
         is.append(Op::ADD, memloc(left.result.value.asIntegral()), memloc(right.result.value.asIntegral()));
+        */
+
+        // Parent expression is root expression -> left could be an assignment target
+        if (expr.isRoot && left.isTerminator) {
+          // left is a reference <-> assignable
+          if (left.result.value.valueClass == ValueClass::REFERENCE) {
+
+          }
+        }
+
+        Type result;
+
+        if ((s = handleOperation(ctx, source, reflist(left, right), Operations::ADD, result)) != Status::SUCCESS)
+          return ctx.throwd(s, "op failed");
+
+        // combine types
+
+        expr.result.type = result;
       }
 
       // When reaching the end of given input range and not all
@@ -379,8 +530,14 @@ namespace ms {
     Status s { Status::SUCCESS };
     size_t end = rightBound(src, src.token + 1);
 
+    expr.startToken = src.token;
+    expr.endToken = end;
+
     debug::printsf("BEGIN parseExpression");
     s = parseExpression(ctx, src, expr, src.token + 1, end);
+
+    // Advance current token index
+    src.token = end;
     debug::printsf("END   parseExpression");
 
     return s;
@@ -388,10 +545,37 @@ namespace ms {
 
   size_t rightBound(Source& src, size_t pos) {
     for (size_t i = pos; i < src.tokenCount(); i++) {
-
+      TokenClass tc = classifyToken(Tok::KW_DEF);
     }
 
     return pos + 3;
+  }
+
+  // -- Util
+
+  memloc createMemloc(const Value& value) {
+    if (value.valueClass == ValueClass::UNKNOWN)
+      return memloc(memloc::UNSET, 0); // INVALID
+
+    if (value.valueClass == ValueClass::REFERENCE) {
+      const Reference& ref = std::get<Reference>(value.content);
+
+      return memloc::local(ref.asAddress());
+    }
+
+    const Literal& lit = std::get<Literal>(value.content); // TODO: check if LITERAL
+
+    if (lit.isIntermediate) {
+      if (lit.type == types::Int) {
+        return memloc(std::get<msx::Integral>(lit.value));
+      } else if (lit.type == types::Decimal) {
+        return memloc(std::get<msx::Decimal>(lit.value));
+      }
+    } else {
+      return memloc::local(lit.id); // TODO: Literal to real address (offset)
+    }
+
+    return memloc {};
   }
 
 }

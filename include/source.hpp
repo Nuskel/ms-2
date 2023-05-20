@@ -58,6 +58,17 @@ namespace ms {
 
   };
 
+  enum class TokenClass {
+
+    UNKNOWN,
+    IDENTIFIER,
+
+    KEYWORD,
+    OPERATOR,
+    LITERAL
+
+  };
+
   struct Token {
 
     Tok type;
@@ -141,7 +152,7 @@ namespace ms {
     Status status { Status::SUCCESS };
 
     ulong line {0};
-    ulong col {0}, tcol {0}; // character column; token column (token index in line)
+    ulong col {0}, tcol {0}, scol {0}; // character column; token column (token index in line); start column of current buffer
     ulong pos {0};
 
     std::stringstream buf;
@@ -183,6 +194,8 @@ namespace ms {
   Status readFile(Source& target, const std::string& filename);
 
   Status lex(Source& source);
+
+  TokenClass classifyToken(const Tok token);
 
 }
 
