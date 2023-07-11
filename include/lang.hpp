@@ -59,6 +59,7 @@ namespace ms {
     }
 
     friend inline bool operator==(const Symbol& l, const Symbol& r) {
+      debug::printsf("CMP: %% == %%", l.value, r.value);
       return l.value == r.value;
     }
 
@@ -149,7 +150,8 @@ namespace ms {
     ARRAY,
     TUPEL, // like array with different types
 
-    SIMPLE
+    SIMPLE,
+    ANY
 
   };
 
@@ -181,6 +183,14 @@ namespace ms {
 
     Type() {}
     Type(const SRef<TypeDef>& typeDef) : def(typeDef) {}
+
+    inline bool operator ==(const Type& another) {
+      return def == another.def;
+    }
+
+    inline bool operator !=(const Type& another) {
+      return def != another.def;
+    }
 
     inline Type& operator =(const Type& another) {
       def = another.def;
@@ -257,7 +267,9 @@ namespace ms {
 
     MODULE,
     NAMESPACE,
+    OBJECT,
     PROTO,
+    ARRAY,
     FUNCTION,
     VAR
 
@@ -289,9 +301,25 @@ namespace ms {
 
   };
 
+  struct Decl {
+
+    // DeclSpec
+    bool isConst {false};
+    bool isAtomic {false};
+    bool isDef {false};
+
+    SRef<Entity> entity;
+
+    Decl() {}
+    Decl(SRef<Entity> p_entity) : entity(p_entity) {}
+
+  };
+
   struct Namespace : public Entity {
 
-    HMap<Symbol, SRef<Entity>, SymbolHash> entities;
+    using DeclMap = HMap<Symbol, Decl, SymbolHash>;
+
+    DeclMap entities;
 
     Namespace() {
       type = EntityType::NAMESPACE;
@@ -345,13 +373,25 @@ namespace ms {
 
   // --
 
-  struct Proto : public Namespace, public TypeDef {
+  struct Object : public Namespace, public TypeDef {
+
+    Object() {
+      type = EntityType::OBJECT;
+      typeClass = TypeClass::OBJECT;
+      symbol = name = Symbol("Object");
+    }
+
+  };
+
+  struct Proto : public Object {
 
     HMap<Type, SRef<Function>, TypeHash> castFunctions;
     HMap<Operation, SRef<Function>, OperationHash> opFunctions;
 
     Proto() {
       type = EntityType::PROTO;
+      typeClass = TypeClass::PROTO;
+      symbol = name = Symbol("Proto");
     }
 
     SRef<Function> castfn(const Type type);
@@ -367,6 +407,12 @@ namespace ms {
   struct Array : public Entity, public TypeDef {
 
     Type arrayType;
+
+    Array() {
+      type = EntityType::ARRAY;
+      typeClass = TypeClass::ARRAY;
+      symbol = name = Symbol("Array");
+    }
 
   };
 
@@ -445,6 +491,15 @@ namespace ms {
 
   namespace stdtypes {
 
+    struct AnyDef : public TypeDef {
+
+      AnyDef() {
+        typeClass = TypeClass::ANY;
+        name = Symbol("any");
+      }
+
+    };
+
     struct IntDef : public Proto {
 
       IntDef() {
@@ -490,6 +545,22 @@ namespace ms {
     inline const Type String { std::make_shared<stdtypes::StringDef>() };
 
     inline const Type Unknown { std::make_shared<stdtypes::UnknownDef>() };
+    inline const Type Any { std::make_shared<stdtypes::AnyDef>() };
+
+    inline Type makeObject() {
+      return Type { std::make_shared<Object>() };
+    }
+
+    inline Type makeArray(Type arrayType) {
+      SRef<Array> def = std::make_shared<Array>();
+
+      // TODO:
+      //  (a) -> Type::template ?
+      //  (b) -> TypeRegistry lookup for Array with template type
+      def->arrayType = arrayType;
+
+      return Type { def };
+    }
 
   }
 
@@ -499,6 +570,7 @@ namespace ms {
 
     Type type;
     Value value;
+    SRef<Entity> entity;
 
   };
 
@@ -515,6 +587,8 @@ namespace ms {
 
     size_t startToken {0};
     size_t endToken {0};
+
+    SRef<Namespace> scope {nullptr};
 
     Expression() {}
     virtual ~Expression() {
@@ -544,12 +618,25 @@ namespace ms {
 
   struct EntityMatch {
 
+    using MapEntry = HMapIt<Symbol, Decl>;
+
     SRef<Module> module { nullptr };
     std::vector<SRef<Namespace>> path;
-    SRef<Entity> found { nullptr };
 
-    inline bool notFound() {
-      return found == nullptr;
+    bool match;
+
+    MapEntry entry; // only use if match!
+    Symbol symbol;
+    Decl decl;
+
+    SRef<Entity> entity { nullptr };
+
+    inline bool hasMatch() {
+      return match;
+    }
+
+    inline bool hasDef() {
+      return match && decl.entity;
     }
 
   };

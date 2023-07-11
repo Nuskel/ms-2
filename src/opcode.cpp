@@ -5,10 +5,33 @@
 namespace ms {
 
   Status InstructionBlock::append(Op op) {
+    Instruction i { op };
+
+    if (nlabel.length() > 0) {
+      i.label = nlabel;
+      nlabel = "";
+    }
+
+    instructions.push_back(i);
+
+    // TODO: if debug
+    const auto info = getOpInfo(op);
+
+    debug::printsf("`2%%", info.name);
+
     return Status::SUCCESS;
   }
 
-  Status InstructionBlock::append(Op op, memloc source) {
+  Status InstructionBlock::append(Op op, OpArg arg0) {
+    Instruction i { op };
+
+    instructions.push_back(i);
+
+    // TODO: if debug
+    const auto info = getOpInfo(op);
+
+    debug::printsf("`3%% %% %%", info.name);
+
     return Status::SUCCESS;
   }
 
@@ -28,7 +51,7 @@ namespace ms {
     // TODO: if debug
     const auto info = getOpInfo(op);
 
-    debug::printsf("`2%% %% %%", info.name, source, target);
+    debug::printsf("`3%% %% %%", info.name, source, target);
 
     return Status::SUCCESS;
   }

@@ -27,7 +27,11 @@ namespace ms {
 		{ "%",					Tok::OP_MOD				},
 
     { "(",					Tok::OP_LEFT_PARENTHESIS },
-    { ")",          Tok::OP_RIGHT_PARENTHESIS }
+    { ")",          Tok::OP_RIGHT_PARENTHESIS },
+    { "[",          Tok::OP_LEFT_BRACKET },
+    { "]",          Tok::OP_RIGHT_BRACKET },
+    { "{",          Tok::OP_LEFT_CURLY },
+    { "}",          Tok::OP_RIGHT_CURLY },
   };
   MS_MAP_LOOKUP(strToTok, tokenMap, std::string, Tok, Tok::UNKNOWN);
 
@@ -183,22 +187,23 @@ namespace ms {
           }
 
           // -- number
-          if (i + 1 < len && true /*isNum(source.code[i + 1])*/) {
+          if (i + 1 < len && isDigit(source.code[i + 1])) {
             break;
           }
 
           // -- function or attribute splitter
-          lexer.push(Tok::OP_DOT);
+          lexer.commit();
+          lexer.push(Tok::OP_DOT, c);
 
           break;
 
         default:
           // -- standard single-character tokens
-          Tok t = strToTok(std::to_string(c));
+          Tok t = strToTok(std::string(1, c));
 
           if (t != Tok::UNKNOWN) {
             lexer.commit();
-            lexer.push(t);
+            lexer.push(t, c);
           } else {
             // others characters are added to the current token
             lexer.append(c);
@@ -271,6 +276,18 @@ namespace ms {
     source.tokens.push_back(t);
   }
 
+  void Lexer::push(Tok tok, char c) {
+    Token t;
+
+    t.value = std::string(1, c);
+    t.type = tok;
+    t.line = line;
+    t.col = scol;
+    t.tcol = tcol;
+
+    source.tokens.push_back(t);
+  }
+
   void Lexer::push(char c) {
     Token t;
 
@@ -313,14 +330,19 @@ namespace ms {
     offset += std::log10(from + 1) + 1;
 
     buf << debug::Console::Modifier(debug::ChatColor::FG_RED);
-    buf << "(" << file << "|" << (line + 1) << ":" << (from + 1) << ") ";
+    buf << "(" << file << "|" << (line + 1) << ":" << (from + 1) << '-' << (to) << ") ";
     buf << debug::Console::Modifier(debug::ChatColor::FG_WHITE);
-    buf << lstr << '\n' << std::string(from + offset + 1, ' ');
+    buf << lstr;
+    
+    if (to < from)
+      buf << "...";
+    
+    buf << '\n' << std::string(from + offset, ' ');
     buf << debug::Console::Modifier(debug::ChatColor::FG_RED);
 
     if (from == to) {
       buf << "^";
-    } else {
+    } else if (to > from) {
       buf << "^" << std::string(to - from, '~');
     }
 
@@ -365,8 +387,28 @@ namespace ms {
 
   // TOKEN META
 
-  TokenClass calssifiyToken(const Tok token) {
-    
+  TokenClass classifyToken(const Tok token) {
+    if (token == Tok::UNKNOWN)
+      return TokenClass::UNKNOWN;
+
+    if (token == Tok::IDENTIFIER)
+      return TokenClass::IDENTIFIER;
+
+    if (token >= Tok::KW_IMPORT && token <= Tok::KW_ELSE)
+      return TokenClass::KEYWORD;
+
+    if (token >= Tok::OP_ASSIGN && token <= Tok::OP_RIGHT_CURLY)
+      return TokenClass::OPERATOR;
+
+    if (token >= Tok::L_INTEGRAL && token <= Tok::L_STRING)
+      return TokenClass::LITERAL;
+
+    return TokenClass::UNKNOWN;
+  }
+
+  bool isParenthesis(const Tok token) {
+    return token >= Tok::OP_LEFT_PARENTHESIS &&
+      token <= Tok::OP_RIGHT_CURLY;
   }
 
 }

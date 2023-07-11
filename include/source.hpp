@@ -51,6 +51,12 @@ namespace ms {
 		OP_LEFT_PARENTHESIS,
 		OP_RIGHT_PARENTHESIS,
 
+    OP_LEFT_BRACKET,
+    OP_RIGHT_BRACKET,
+
+    OP_LEFT_CURLY,
+    OP_RIGHT_CURLY,
+
     // Literals
     L_INTEGRAL,
     L_DECIMAL,
@@ -169,6 +175,8 @@ namespace ms {
     void commit(Tok tok = Tok::UNKNOWN);
 
     void push(Tok);
+
+    void push(Tok, char);
     
     void push(char);
 
@@ -196,6 +204,7 @@ namespace ms {
   Status lex(Source& source);
 
   TokenClass classifyToken(const Tok token);
+  bool isParenthesis(const Tok token);
 
 }
 

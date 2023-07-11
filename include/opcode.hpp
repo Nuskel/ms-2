@@ -13,7 +13,9 @@ namespace ms {
 
     NOP,
 
+    /* LEA <hash> -- pushes the real address of the object member (pop) identified by the hash */
     LEA,
+
     MOV,
     PUSH,
 
@@ -23,7 +25,13 @@ namespace ms {
     CALL,
     RET,
 
-    ADD
+    ADD,
+
+    /* Create array */
+    CARRAY,
+
+    /* Delete array */
+    DARRAY
 
   };
 
@@ -39,10 +47,61 @@ namespace ms {
   };
 
   static MS_VALUE_MAP(Op, OpInfo) operations {
-    { Op::ADD, OpInfo { Op::ADD, "ADD", 2 } },
-    { Op::POP, OpInfo { Op::POP, "POP", 1 } },
+    { Op::LEA, OpInfo { Op::LEA, "LEA", 1 }},
+
+    { Op::ADD, OpInfo { Op::ADD, "ADD", 2 }},
+    { Op::POP, OpInfo { Op::POP, "POP", 1 }},
+
+    { Op::CARRAY, OpInfo { Op::CARRAY, "CARRAY", 0 }},
+    { Op::DARRAY, OpInfo { Op::DARRAY, "DARRAY", 0 }}
   };
   static MS_MAP_LOOKUP(getOpInfo, operations, Op, OpInfo, OpInfo {});
+
+  struct OpArg {
+
+    enum class Type : int {
+
+      NONE = 0,
+      INTERMEDIATE_NUMERIC,
+      INTERMEDIATE_LABEL,
+      LABEL,
+      MEMLOC_LOCAL,
+      MEMLOC_GLOBAL
+
+    };
+
+    struct {
+
+      size_t numeric {0};
+      std::string label;
+
+    } intermediate;
+
+    struct {
+
+      size_t local {0};
+      size_t global {0};
+
+    } address;
+
+    Type type;
+
+    OpArg() : type(Type::NONE) {}
+    OpArg(size_t numeric) {
+      intermediate.numeric = numeric;
+      type = Type::INTERMEDIATE_NUMERIC;
+    }
+
+    static inline OpArg local(size_t address) {
+      OpArg arg;
+
+      arg.type = Type::MEMLOC_LOCAL;
+      arg.address.local = address;
+
+      return arg;
+    }
+
+  };
 
   struct memloc {
 
@@ -99,7 +158,7 @@ namespace ms {
     std::vector<Instruction> instructions;
 
     virtual Status append(Op);
-    virtual Status append(Op, memloc src);
+    virtual Status append(Op, OpArg);
     virtual Status append(Op, memloc src, memloc target);
     virtual Status append(Op, memloc src1, memloc src2, memloc target);
     

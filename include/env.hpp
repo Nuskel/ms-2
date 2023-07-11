@@ -42,6 +42,9 @@ namespace ms {
   template <typename K, typename V, typename KeyHash = std::hash<K>>
   using HMap = std::unordered_map<K, V, KeyHash>;
 
+  template <typename K, typename V, typename KeyHash = std::hash<K>>
+  using HMapIt = std::unordered_map<K, V, KeyHash>::iterator;
+
   struct Context;
 
   enum Status {

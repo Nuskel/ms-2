@@ -122,7 +122,7 @@ namespace ms {
                     return type.name().value + "{}";
 
                 case TypeClass::ARRAY:
-                    return type.name().value + "[]";
+                    return type.name().value + "<" + SFmt<Type>{}.toString(derive<TypeDef, Array>(type.def)->arrayType) + ">[]";
 
                 case TypeClass::TUPEL:
                     return type.name().value + "()";
@@ -166,6 +166,24 @@ namespace ms {
 
         std::string toString(Instruction i) {
             return std::to_string((int) i.op);
+        }
+
+    };
+
+    template <>
+    struct SFmt<OpArg> {
+
+        std::string toString(const OpArg& arg) {
+            switch (arg.type) {
+                case OpArg::Type::NONE:
+                    return "<none>";
+
+                case OpArg::Type::INTERMEDIATE_NUMERIC:
+                    return std::to_string((size_t) arg.intermediate.numeric);
+
+                default:
+                    return "Arg<?>";
+            }
         }
 
     };
@@ -287,10 +305,12 @@ namespace ms {
             buffer << space;
             buffer << "|-";
 
-            if (e.second->isNamespace()) {
-                buffer << structureString(std::dynamic_pointer_cast<Namespace>(e.second), + 1);
+            if (!e.second.entity) {
+                buffer << e.first << " (decl)\n";
+            } else if (e.second.entity->isNamespace()) {
+                buffer << structureString(std::dynamic_pointer_cast<Namespace>(e.second.entity), depth + 1);
             } else
-                buffer << e.second->symbol << " (" << debug::toString(e.second->type) << "), " << "e.value->address" << "%" << "e.value->localAddress" << "\n";
+                buffer << e.first << " (" << debug::toString(e.second.entity->type) << "), " << e.second.entity << "%" << "e.value->localAddress" << "\n";
         }
 
         return buffer.str();

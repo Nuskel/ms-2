@@ -33,6 +33,12 @@ namespace ms {
 
   size_t rightBound(Source& src, size_t pos);
 
+  // --
+
+  Status decl(Context& ctx, SRef<Namespace> scope, Symbol symbol, Decl decl = {});
+
+  Status def(Context& ctx, SRef<Namespace> scope, Symbol symbol, SRef<Entity> member, bool requiresDecl = false);
+
 }
 
 #endif

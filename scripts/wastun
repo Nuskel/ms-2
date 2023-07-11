@@ -1,0 +1,71 @@
+tasks = {
+  soccer: {},
+  tennis: {}
+}
+
+questions = Graph(scheme: {
+  node -> node[] with prob_of_next_question
+})
+
+function add_task(task, path)
+
+function adjust_task(task, path)
+  good_nodes = []
+  bad_nodes = []
+
+  for node in path do
+    path_to_task = questions.cheapest_path_to_node(task)
+
+function augment(task, attributes)
+  for [attr, val] in attributes
+    task.attr = val
+
+function restrict(current, attributes)
+  for task in current
+    for [attr, val] in task
+      if distance(val, attributes[attr]) > max_distance()
+        drop(current, task)
+
+function solidify_confidence(path)
+  questions.update_path_weights(path, (node1, node2, weight) => slightly_increased_confidence(weight))
+
+function select_question(path)
+  node = path.last()
+  neighbours = questions.neighbours(node, choose_start_on_null=one_of_high_confidence_nodes(questions))
+  
+  # select a random next question respecting
+  # the probalities of being called next
+  return choose_random(neighbours, weight=prob_of_next_question)
+
+function main()
+  current = [...tasks]
+  path = []
+
+  while (len(current) > 0) do
+    q = select_question(path)
+
+    if q is nil then
+      print("Found: {result}")
+
+      correct = ask("Is it correct?")
+
+      if not correct then
+        expected = print("What did you expect?")
+
+        if tasks[expected] is nil
+          add = print("This task is unknown. Do you want to add it?")
+
+          if add ~ "yes" then
+            add_task(expected, path)
+          end
+        else
+          adjust_task(expected, path)
+        end
+      else
+        solidify_confidence(path)
+      end
+    else
+      path.push(q)
+    end
+  end
+end

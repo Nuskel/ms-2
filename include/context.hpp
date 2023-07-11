@@ -51,6 +51,8 @@ namespace ms {
 
     Status decl(Symbol);
 
+    Status decl(Symbol, SRef<Namespace> scope);
+
     Status defineType(SRef<Proto> proto, TypeClass typeClass = TypeClass::PROTO);
 
     Status registerModule(SRef<Module>);
@@ -105,11 +107,14 @@ namespace ms {
       debug::printsf_ignore_debug_mode("$1[Error@%%] <$r$1$b%%$r$1> %%", "Comp", s, formatted);
 
       // if logCode
-      if (currentSource && start >= 0 && start <= end && end < currentSource->tokenCount()) {
+      if (currentSource && start >= 0 && start <= (end - 1) && end <= currentSource->tokenCount()) {
         const Token& from = currentSource->tokens[start];
-        const Token& to = currentSource->tokens[end];
+        const Token& to = currentSource->tokens[end - 1];
 
-        std::cout << currentSource->getMarkedLine(currentSource->line, from.col, to.col) << '\n';
+        if (to.line > from.line)
+          std::cout << currentSource->getMarkedLine(currentSource->line, from.col, from.col) << '\n';
+        else
+          std::cout << currentSource->getMarkedLine(currentSource->line, from.col, to.col) << '\n';
       }
 
       return s;

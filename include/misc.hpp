@@ -95,17 +95,6 @@ namespace ms {
 
   };
 
-  template <int Min, int Max, typename Val>
-  struct Range {
-
-    constexpr int min = Min;
-    constexpr int max = Max;
-    Val val;
-
-    Range(const Val& p_val) : val(p_val) {}
-
-  };
-
   /* ------- */
 
   /* Creates a RefList using the varg params. */

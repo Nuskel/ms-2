@@ -66,14 +66,24 @@ namespace ms {
   EntityMatch lookup(EntityLookup lookup) {
     SRef<Namespace> scope = lookup.scope;
     std::vector<SRef<Namespace>> path;
+    Symbol sym {lookup.name};
+
+    debug::printsf("LOOKUP %% in <%%>", sym, entityName(lookup.scope));
 
     while (scope) {
-      const auto& ex = scope->entities.find(Symbol(lookup.name));
+      const auto& ex = scope->entities.find(sym);
 
       path.push_back(scope);
 
       if (ex != scope->entities.end())
-        return EntityMatch { .path = path, .found = ex->second };
+        return EntityMatch {
+          .path = path,
+          .match = true,
+          .entry = ex,
+          .symbol = ex->first,
+          .decl = ex->second,
+          .entity = ex->second.entity
+        };
 
       const auto& parent = scope->parent.lock();
 

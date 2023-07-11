@@ -96,15 +96,18 @@ namespace ms {
 
         case Tok::KW_LET: {
           std::string ident;
+          Decl d;
+
+          // TODO: readSpec(...i) -> Decl
 
           if ((s = source.readIdentifier(ident)) != Status::SUCCESS)
-            leave(ctx.throwd(s, "expected identifier"))
+            leave(ctx.throwd(s, i + 1, "expected identifier"))
 
           if (!validIdentifier(ident))
-            leave(ctx.throwd(Status::FAIL, "invalid identifier"))
+            leave(ctx.throwd(Status::FAIL, i + 1, "invalid identifier"))
 
-          if ((s = ctx.decl({ ident })) != Status::SUCCESS)
-            leave(ctx.throwd(s, "could not declare variable"))
+          if ((s = decl(ctx, ctx.scope, { ident }, d)) != Status::SUCCESS)
+            leave(ctx.throwd(s, i + 1, "could not declare variable"))
           
           debug::printsf("[let] declared var '%%' in '%%'", ident, entityName(ctx.module));
 
@@ -115,6 +118,8 @@ namespace ms {
           std::string ident;
           size_t pos = i - 1;
 
+          // TODO: parseExpression(... pos, )
+
           if ((s = source.readIdentifier(ident, pos)) != Status::SUCCESS)
             leave(ctx.throwd(s, pos, "expected a symbol"))
 
@@ -123,18 +128,45 @@ namespace ms {
 
           EntityMatch em = lookup(EntityLookup(ctx.module, ident));
 
-          if (em.notFound())
+          if (!em.hasMatch())
             leave(ctx.throwd(Status::FAIL, pos, "unknown identifier '%%'", ident))
-
-          if (em.found->type != EntityType::VAR)
-            leave(ctx.throwd(Status::FAIL, pos, "cannot assign to %% <%%>, must be a variable", ident, em.found->type))
+          
+          if (em.decl.isConst)
+            leave(ctx.throwd(Status::FAIL, pos, "cannot assign to const"))
 
           Expression expr;
 
           if ((s = parseExpression(ctx, source, expr)) != Status::SUCCESS)
             leave(ctx.throwd(s, expr.startToken, expr.endToken, "failed to parse expression"))
 
-          setVarType(em.found, expr.result.type);
+          std::cout << structureString(ctx.scope) << "\n";
+
+          if (expr.result.entity) {
+            debug::printsf("ENT = %%, %%", expr.result.entity->symbol, expr.result.entity);
+            debug::printsf(" (1) %% = %%", em.entry->first, em.entry->second.entity);
+
+            em.entry->second.entity = expr.result.entity;
+
+            debug::printsf(" (2) %% = %%", em.entry->first, em.entry->second.entity);
+          }
+
+          for (const auto& e : ctx.scope->entities) {
+            debug::printsf(" - %%: %%", e.first, e.second.entity);
+          }
+
+          if (expr.result.value.valueClass == ValueClass::LITERAL) {
+
+          } else {
+            SRef<Entity> ent = expr.result.entity;
+
+            if (ent) {
+              // TODO: check if
+              //  a) types have to match (in most cases not since vars can change type)
+              //  b) if a) && assignment is valid for type(found) = expression_type
+
+              //em.entry->second.entity = ent;
+            }
+          }
 
           // TODO: write value
           memloc target;
@@ -143,7 +175,9 @@ namespace ms {
           //  get info from expression if a ADD target value instruction was used and no pop is required!
           // ctx.instructions.append(Op::POP, target);
 
-          debug::printsf("[=] assigning '%%' to %% (%%)", ident, expr.result.type, "-");
+          debug::printsf("[=] assigning '%%' to %% (%%)", ident, expr.result.type, em.entry->first);
+
+          std::cout << structureString(ctx.scope) << "\n";
 
           break;
         }
@@ -171,14 +205,14 @@ namespace ms {
         const Literal& lit = std::get<Literal>(value.content);
 
         if (lit.isIntermediate) {
-          ins.append(Op::PUSH, memloc(value.asIntegral()));
+          ins.append(Op::PUSH, value.asIntegral());
         }
       } else if (value.valueClass == ValueClass::REFERENCE) {
         const Reference& ref = std::get<Reference>(value.content);
         bool local = ref.referenced == ctx.scope;
         
         if (local)
-          ins.append(Op::LEA, memloc::local(ref.referenced->address));
+          ins.append(Op::PUSH, OpArg::local(ref.referenced->address));
       }
     }
 
@@ -208,15 +242,15 @@ namespace ms {
       /* References */
 
       case Tok::IDENTIFIER: {
-        EntityMatch em = lookup(EntityLookup(ctx.scope, token.value)); // Todo: search option -> only EntityType::VAR???
+        SRef<Namespace> scope = expr.scope ? expr.scope : ctx.scope;
+        EntityMatch em = lookup(EntityLookup(scope, token.value)); // Todo: search option -> only EntityType::VAR???
         Reference ref;
 
-        ref.constant = false;
-        ref.referenced = em.found;
+        if (em.hasDef()) {
+          SRef<Entity> ent = em.entity;
 
-        if (em.found) {
-          if (em.found->type == EntityType::PROTO) {
-            SRef<Proto> proto = castEntity<Proto>(em.found);
+          if (ent->type == EntityType::PROTO) {
+            SRef<Proto> proto = castEntity<Proto>(ent);
 
             expr.result.type = proto;
           } else {
@@ -227,16 +261,45 @@ namespace ms {
           /* References in expressions should always refer to previously declared variables.
            * Only declared and not defined variables hold the default value for the value type.
            */
-          ref.refType = varType(em.found);
-        } else
-          return ctx.throwd(Status::FAIL, "unknown identifier '%%'", token.value);
+          //ref.refType = varType();
+          ref.constant = em.decl.isConst;
+          ref.referenced = ent;
+          expr.result.entity = ent;
+        } else {
+          /* Const Objects and Protos cannot create properties in place, thus requiring
+           * the requested name to be a member of the scope. Simple objects will automatically
+           * create the member if not existing.
+           */
+
+          if (scope) {
+            /* When referencing members of objects, their adresses must be pushed to the stack.
+             * Since this is not a proto and thus one cannot know if the member really exists
+             * on compile time, only the hash value of the symbol is used. On runtime this hash
+             * will be used to query the address of the actual object's member (which may be undefined).
+             */
+            if (scope->type == EntityType::OBJECT) {
+              size_t hash;
+
+              if (em.hasMatch())
+                hash = SymbolHash{}(em.symbol);
+              else
+                hash = SymbolHash()({ token.value });
+
+              ctx.instructions.append(Op::LEA, hash);
+
+              break;
+            }
+          }
+
+          return ctx.throwd(Status::FAIL, "<%%> has no member '%%'", entityName(scope), token.value);
+        }
         
         //expr.result.type = types::Reference;
         expr.result.type = ref.refType;
         expr.result.value = Value { ValueClass::REFERENCE, ref };
 
-        debug::printsf(" FOUND %% (%%) referencing %% at %%",
-          em.found->symbol, em.found->type, ref.refType, "address");
+        debug::printsf(" FOUND %% (%%) in %% referencing %% at %%",
+          em.symbol, em.entity->type, entityName(scope), ref.refType, "address");
 
         break;
       }
@@ -434,9 +497,31 @@ namespace ms {
 
     /* only possible (and allowed) combinations:
      *  (1) not <terminator>
+     *  (2) array defintions: []
      */
     if (d == 2) {
+      const Token& l = source.tokens[from];
+      const Token& r = source.tokens[to - 1];
 
+      // advance token index
+      source.token += 2;
+
+      // Create array
+      if (l.type == Tok::OP_LEFT_BRACKET && r.type == Tok::OP_RIGHT_BRACKET) {
+        is.append(Op::CARRAY);
+
+        expr.result.type = types::makeArray(types::Any);
+
+        debug::printsf(" CREATE Dynamic Array -> %%", expr.result.type);
+      } else if (l.type == Tok::OP_LEFT_CURLY && r.type == Tok::OP_RIGHT_CURLY) {
+        SRef<Object> obj = std::make_shared<Object>();
+
+        expr.result.type = Type {obj};
+        expr.result.entity = obj;
+      } else
+        return ctx.throwd(Status::FAIL, from, to, "invalid expression; expected special type of length two");
+
+      return Status::SUCCESS;
     }
 
     // =-=-=-=
@@ -510,6 +595,27 @@ namespace ms {
         expr.result.type = result;
       }
 
+      if (p == 7 && tok == Tok::OP_DOT) {
+        Expression& left = expr.left();
+        Expression& right = expr.right();
+
+        sleft = parseExpression(ctx, source, left, from, i);
+
+        debug::printsf("left: %% in scope %%", entityName(left.result.entity), entityName(left.scope));
+
+        if (left.result.entity && left.result.entity->isNamespace())
+          right.scope = toNamespace(left.result.entity);
+
+        debug::printsf("right: %% in scope %%", entityName(right.result.entity), entityName(right.scope));
+        
+        sright = parseExpression(ctx, source, right, i + 1, to);
+
+        debug::printsf("DOT %% (%%).%% (%%)", entityName(left.result.entity), left.result.type,
+          entityName(right.result.entity), right.result.type);
+
+        expr.result.type = right.result.type;
+      }
+
       // When reaching the end of given input range and not all
       // precedences are resolved, start at the beginning on
       // a higher precedence.
@@ -537,18 +643,75 @@ namespace ms {
     s = parseExpression(ctx, src, expr, src.token + 1, end);
 
     // Advance current token index
-    src.token = end;
+    src.token = end - 1; // -1 since parse-loop will i++ on end
     debug::printsf("END   parseExpression");
 
     return s;
   }
 
   size_t rightBound(Source& src, size_t pos) {
+    int cohesion = 2;
+    int r = 0;
+
     for (size_t i = pos; i < src.tokenCount(); i++) {
-      TokenClass tc = classifyToken(Tok::KW_DEF);
+      const Token& token = src.tokens[i];
+      const Tok tok = token.type;
+      const TokenClass tc = classifyToken(tok);
+
+      debug::printsf(" - %% '%%' = %% .. %% --> %%", tok, token.value, (int) tc, r, i);
+
+      if (tc == TokenClass::KEYWORD)
+        return i;
+      else if (tc == TokenClass::OPERATOR) {
+        // a type of parenthesis MUST be followed by an operator
+        if (isParenthesis(tok))
+          r = 1;
+        else
+          r = 0;
+      } else
+        r++;
+
+      if (r == cohesion)
+        return i;
     }
 
-    return pos + 3;
+    return src.tokens.size();
+  }
+
+  // --
+
+  Status decl(Context& ctx, SRef<Namespace> scope, Symbol symbol, Decl decl) {
+    if (!scope)
+      return ctx.throwd(Status::INTERNAL, "missing scope");
+
+    if (scope->contains(symbol))
+      return ctx.throwd(Status::FAIL_DUPLICATE, "symbol '%%' was already declared in scope <%%>", symbol, scope->symbol);
+
+    scope->entities.emplace(std::make_pair(symbol, decl));
+
+    return Status::SUCCESS;
+  }
+
+  Status def(Context& ctx, SRef<Namespace> scope, Symbol symbol, SRef<Entity> member, bool requiresDecl) {
+    if (!scope)
+      return ctx.throwd(Status::INTERNAL, "missing scope");
+
+    if (!member)
+      return ctx.throwd(Status::FAIL, "cannot define null entity");
+
+    auto it = scope->entities.find(symbol);
+
+    if (it == scope->entities.end()) {
+      if (requiresDecl)
+        return ctx.throwd(Status::FAIL, "missing declaration for <%%> in <%%>", entityName(scope), symbol);
+
+      scope->entities.emplace(std::make_pair(member->symbol, member));
+    } else
+      it->second.entity = member;
+
+    member->parent = scope;
+
+    return Status::SUCCESS;
   }
 
   // -- Util

@@ -33,6 +33,10 @@ namespace ms {
   }
 
   Status Context::decl(Symbol symbol) {
+    return decl(symbol, scope);
+  }
+
+  Status Context::decl(Symbol symbol, SRef<Namespace> scope) {
     if (!scope)
       return throwd(Status::INTERNAL, "no active scope");
 
