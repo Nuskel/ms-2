@@ -275,12 +275,6 @@ namespace ms {
 
   };
 
-  struct Adressable {
-
-    msx::Address address;
-
-  };
-
   struct Entity {
 
     Symbol symbol;
@@ -350,7 +344,7 @@ namespace ms {
   struct Variable : public Entity {
 
     Type valueType;
-    msx::Address address; // TODO: public Adressable
+    //msx::Address address; // TODO: public Adressable
 
     Variable() {}
     Variable(const Symbol& p_symbol) {
@@ -372,6 +366,26 @@ namespace ms {
   struct Block {};
 
   // --
+
+  namespace json {
+
+    struct Element {};
+
+    struct Object : Element {
+
+      void put(const std::string& key, Element* value);
+
+    };
+
+    struct Array : Element {};
+
+    struct String : Element {};
+
+    struct Double : Element {};
+
+    struct Bool : Element {};
+
+  }
 
   struct Object : public Namespace, public TypeDef {
 
@@ -571,6 +585,7 @@ namespace ms {
     Type type;
     Value value;
     SRef<Entity> entity;
+    bool reduced {false};
 
   };
 
@@ -580,6 +595,7 @@ namespace ms {
     bool isRoot { true };
     bool isTerminator { false };
     bool hasAssignment { false };
+    bool pushHash { false };
 
     ExpressionResult result;
     URef<Expression> leftChild;
@@ -694,6 +710,10 @@ namespace ms {
       return entity->symbol.value;
 
     return "???";
+  }
+
+  inline bool isType(const SRef<Entity> entity, const EntityType type) {
+    return entity && entity->type == type;
   }
 
 }

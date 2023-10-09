@@ -8,7 +8,11 @@
 #include <initializer_list>
 #include <memory>
 
+#define MS_REQUIRE_FIELD(name, type) requires (T t) { { t.name } -> std::same_as<type&>; }
+
 namespace ms {
+
+  /* ------- */
 
   template <typename T>
   struct LList {
@@ -153,6 +157,20 @@ namespace ms {
     }
 
     return i;
+  }
+
+  template <typename T> // TODO: is integral
+  std::string toBinary(const T& data) {
+    std::stringstream buf;
+
+    for (long i = (sizeof(T) * 8) - 1; i >= 0; i--) {
+      buf << ((data & (1 << i)) > 0 ? '1' : '0');
+
+      if (i > 0 && (i % 8) == 0)
+        buf << '\'';
+    }
+
+    return buf.str();
   }
 
 }

@@ -65,7 +65,7 @@ namespace ms {
       const Token& token = source.tokens[i];
       bool nl = source.line < token.line; // new line
 
-      debug::printsf(" -- %% %% (%%:%%)", token.type, token.value, token.line, token.col);
+      debug::printsf(" -- $6%% %%$r (%%:%%)", token.type, token.value, token.line, token.col);
 
       source.line = token.line;
 
@@ -136,22 +136,19 @@ namespace ms {
 
           Expression expr;
 
+          expr.scope = ctx.scope;
+
           if ((s = parseExpression(ctx, source, expr)) != Status::SUCCESS)
             leave(ctx.throwd(s, expr.startToken, expr.endToken, "failed to parse expression"))
 
-          std::cout << structureString(ctx.scope) << "\n";
+          // TODO: PROPAGATE ANY!!
 
           if (expr.result.entity) {
-            debug::printsf("ENT = %%, %%", expr.result.entity->symbol, expr.result.entity);
-            debug::printsf(" (1) %% = %%", em.entry->first, em.entry->second.entity);
-
-            em.entry->second.entity = expr.result.entity;
-
-            debug::printsf(" (2) %% = %%", em.entry->first, em.entry->second.entity);
-          }
-
-          for (const auto& e : ctx.scope->entities) {
-            debug::printsf(" - %%: %%", e.first, e.second.entity);
+            // assign decl symbol
+            expr.result.entity->symbol = em.symbol;
+            em.entry->second = expr.result.entity;
+            em.decl.entity = expr.result.entity;
+            em.decl.isDef = true;
           }
 
           if (expr.result.value.valueClass == ValueClass::LITERAL) {
@@ -223,8 +220,85 @@ namespace ms {
 
   // -- Expressions
 
+  Status parseParenthesis(Context& ctx,
+    const Tok tok, const Tok open, const Tok close,
+    long type, long* ps, long* pe, long* pdepth, size_t i) {
+    /* parsing left to right
+    
+    if (content == open) {
+        if (ps[type] == -1)
+            ps[type] = i;
+            
+        pdepth[type]++;
+    } else if (content == close) {
+        pdepth[type]--;
+
+        if (!pdepth[type] && pe[type] == -1)
+            pe[type] = i;
+
+        if (pdepth[type] < 0)
+            return ctx.throwd(MS_ERROR_INVALID_SYNTAX, i, "scope operator '%%' has no partner", close);
+    }
+    */
+
+    // parsing right to left <- currently used
+    if (tok == open) {
+        pdepth[type]--;
+
+        if (!pdepth[type] && ps[type] == -1)
+            ps[type] = i;
+
+        if (pdepth[type] < 0)
+            return ctx.throwd(Status::FAIL, i, "scope operator '%%' has no partner", open);
+    } else if (tok == close) {
+        if (pe[type] == -1)
+            pe[type] = i;
+
+        pdepth[type]++;
+    }
+
+    //debug::printsf(" '%%' %%%% - level %%", content, open, close, pdepth[type]);
+
+    return Status::SUCCESS;
+  }
+
   Status handleFnCall(Context& ctx, SRef<Function> fn, const std::vector<TypedValue> params) {
     Status s { Status::SUCCESS };
+
+    return s;
+  }
+
+  // Just create instructions, do not 
+  Status parseObject(Context& ctx, Source& source, Expression& expr, size_t from, size_t to, SRef<Object>& result) {
+    Status s { Status::SUCCESS };
+    size_t l { to - from };
+
+    if (l < 2)
+      return ctx.throwd(Status::FAIL, from, to, "invalid object syntax");
+
+    if (l == 2)
+      return parseExpression(ctx, source, expr, from, to);
+
+    SRef<Object> obj = std::make_shared<Object>();
+    char phase = 0; // 0 - identifier; 1 - colon; 2 - expression
+
+    // current layer
+    Namespace::DeclMap layer;
+    uint level = 0;
+
+    ctx.instructions.append(Op::NEW, 1 /* TYPE 1 = OBJECT */);
+
+    for (size_t i = from; i < to; i++) {
+      const Token& token = source.tokens[i];
+      const Tok tok = token.type;
+
+      if (phase == 0) {
+        if (tok != Tok::IDENTIFIER)
+          return ctx.throwd(Status::FAIL, i, "expected identifier");
+
+        layer.emplace(std::make_pair(token.value, Decl {}));
+      }
+    }
 
     return s;
   }
@@ -242,6 +316,17 @@ namespace ms {
       /* References */
 
       case Tok::IDENTIFIER: {
+        
+        if (expr.pushHash) {
+          size_t hash { SymbolHash()({ token.value }) };
+
+          ctx.instructions.append(Op::LEA, hash);
+
+          expr.result.type = types::Any;
+
+          break;
+        }
+
         SRef<Namespace> scope = expr.scope ? expr.scope : ctx.scope;
         EntityMatch em = lookup(EntityLookup(scope, token.value)); // Todo: search option -> only EntityType::VAR???
         Reference ref;
@@ -253,8 +338,8 @@ namespace ms {
             SRef<Proto> proto = castEntity<Proto>(ent);
 
             expr.result.type = proto;
-          } else {
-
+          } else if (ent->type == EntityType::OBJECT) {
+            ctx.instructions.append(Op::PUSH, ent->address);
           }
 
           // DEPRECATED
@@ -327,6 +412,7 @@ namespace ms {
     }
 
     expr.isTerminator = true;
+    expr.result.reduced = true;
 
     return s;
   }
@@ -429,6 +515,10 @@ namespace ms {
       // TODO: look for global opfn
 
       return ctx.throwd(Status::FAIL, "no operator function defined for type <%%>", lt.name());
+    } else if (lt == TypeClass::ANY) {
+      // any: check on runtime...
+
+      ctx.instructions.append(Op::ADD);
     } else {
       return ctx.throwd(Status::FAIL, "cannot perform <%%> on <%%> and <%%>", op, lt, rt);
     }
@@ -441,8 +531,8 @@ namespace ms {
 
     if (op.rank != expressions.size())
       return ctx.throwd(Status::INTERNAL, "operation <%%> expects %% expression(s); provided: %%", op.type, op.rank, expressions.size());
-
-    if (std::any_of(expressions.begin(), expressions.end(), [](const auto& e) { return !e.get().isTerminator; }))
+    
+    if (std::any_of(expressions.begin(), expressions.end(), [](const auto& e) { return !e.get().result.reduced; }))
       return ctx.throwd(Status::INTERNAL, "cannot execute operation since not each operation side is fully reduced");
 
     /* Possible combinations: [int, dec]x[int, dec] |C| = 4
@@ -485,7 +575,7 @@ namespace ms {
 
     size_t d = to - from;
 
-    debug::printsf("!(%%, %%):%% - %%", from, to, d, source.concat(from, to));
+    debug::printsf("!(%%, %%):%% - $4%%$r", from, to, d, source.concat(from, to));
     expr.debugName = source.concat(from, to);
     expr.startToken = from;
     expr.endToken = to;
@@ -518,6 +608,8 @@ namespace ms {
 
         expr.result.type = Type {obj};
         expr.result.entity = obj;
+
+        debug::printsf(" CREATE Empty Object -> %%", expr.result.type);
       } else
         return ctx.throwd(Status::FAIL, from, to, "invalid expression; expected special type of length two");
 
@@ -536,9 +628,9 @@ namespace ms {
     //  [2]: curly bracket {}
     //  [3]: angular bracket <>
 
-    int ps[4] = {-1, -1, -1, -1}; // start index of first opening occurence
-    int pe[4] = {-1, -1, -1, -1}; // end index of last closing occurence
-    int pdepth[4] = {0, 0, 0, 0}; // amount of closing tokens needed to build pairs
+    long ps[4] = {-1, -1, -1, -1}; // start index of first opening occurence
+    long pe[4] = {-1, -1, -1, -1}; // end index of last closing occurence
+    long pdepth[4] = {0, 0, 0, 0}; // amount of closing tokens needed to build pairs
     
     // States of the sub-algorithms
     Status sleft { Status::SUCCESS }, sright { Status::SUCCESS };
@@ -548,6 +640,34 @@ namespace ms {
     for (; i >= from; i--) {
       const Token& token = source.tokens[i];
       const Tok tok = token.type;
+
+      // -- parenthesis control
+
+      /* NOTE: brackets cannot be parsed with a simple precedence.
+        * When there are no arithmetic operators on the level of the bracket, the bracket
+        * gets parsed first. But if otherwise, the arithmetic operator has the
+        * higher precedence and must be the main anchor.
+        * e.g.:
+        *  a) a[0 + 1] -> first parse [], then 0 + 1
+        *  b) a[0] + 1 -> first parse +, then []
+        * Therefore, use the exclusing mechanic below instead of
+        * simply checking for the precendence of brackets.
+        */
+
+      //if (p >= 7) {
+          MS_ASSERT_STATE(s, parseParenthesis(ctx, tok, Tok::OP_LEFT_PARENTHESIS, Tok::OP_RIGHT_PARENTHESIS, 0, ps, pe, pdepth, i))
+          MS_ASSERT_STATE(s, parseParenthesis(ctx, tok, Tok::OP_LEFT_BRACKET, Tok::OP_RIGHT_BRACKET, 1, ps, pe, pdepth, i))
+          MS_ASSERT_STATE(s, parseParenthesis(ctx, tok, Tok::OP_LEFT_CURLY, Tok::OP_RIGHT_CURLY, 2, ps, pe, pdepth, i))
+      //}
+      //MS_ASSERT_STATE(s, parseParenthesis(ctx, content.content, "<", ">", 3, ps, pe, pdepth, i))
+
+      // Whenever a parenthesis is present in the current level,
+      // the scoped content gets parsed later. All precedences
+      // of normal operators are parsed on this level before.
+      if ((pdepth[0] | pdepth[1] | pdepth[2] | pdepth[3]) > 0)
+          continue;
+
+      // == operators ==
 
       // +
       if (p == 5 && tok == Tok::OP_ADD) {
@@ -593,6 +713,8 @@ namespace ms {
         // combine types
 
         expr.result.type = result;
+
+        break;
       }
 
       if (p == 7 && tok == Tok::OP_DOT) {
@@ -601,19 +723,39 @@ namespace ms {
 
         sleft = parseExpression(ctx, source, left, from, i);
 
-        debug::printsf("left: %% in scope %%", entityName(left.result.entity), entityName(left.scope));
+        /* When the left tree is an object or runtime reference, propagate
+         * this behavior to the next node.
+         */
+        if (isType(left.result.entity, EntityType::OBJECT) || left.pushHash) {
+          right.pushHash = true;
+          expr.pushHash = true;
+        }
 
-        if (left.result.entity && left.result.entity->isNamespace())
-          right.scope = toNamespace(left.result.entity);
+        // TODO: propagate ANY ...
 
-        debug::printsf("right: %% in scope %%", entityName(right.result.entity), entityName(right.scope));
-        
+        // Only for proto?
+        //if (left.result.entity && left.result.entity->isNamespace())
+        //  right.scope = toNamespace(left.result.entity);
+
         sright = parseExpression(ctx, source, right, i + 1, to);
 
-        debug::printsf("DOT %% (%%).%% (%%)", entityName(left.result.entity), left.result.type,
-          entityName(right.result.entity), right.result.type);
-
         expr.result.type = right.result.type;
+        expr.result.reduced = true;
+
+        break;
+      }
+
+      // object {...}
+      if (p == 1 && ps[2] != -1 && pe[2] != -1) {
+        debug::printsf("{$4%%$r}", source.concat(ps[2] + 1, pe[2]));
+
+        Expression objExpr;
+        SRef<Object> object;
+
+        if ((s = parseObject(ctx, source, objExpr, ps[2] + 1, pe[2], object)) != Status::SUCCESS)
+          return ctx.throwd(s, ps[2] + 1, ps[2], "failed to parse expression");
+
+        break;
       }
 
       // When reaching the end of given input range and not all
@@ -622,12 +764,6 @@ namespace ms {
       if (i == from && ++p < mp)
         i = to;
     }
-
-    // '+'
-    Expression left, right;
-    
-    //is.append(Op::ADD, memloc::local(left.result.value.asAddress()), memloc(left.result.value.asIntegral()));
-    
 
     return s;
   }
@@ -663,10 +799,12 @@ namespace ms {
       if (tc == TokenClass::KEYWORD)
         return i;
       else if (tc == TokenClass::OPERATOR) {
-        // a type of parenthesis MUST be followed by an operator
+        // a type of parenthesis MUST be followed by an operator // TODO: no -> 2 + (2)
+        /* NO SPECIAL TREATMENT
         if (isParenthesis(tok))
-          r = 1;
+          r = 0;
         else
+        */
           r = 0;
       } else
         r++;

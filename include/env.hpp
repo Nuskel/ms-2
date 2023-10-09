@@ -25,6 +25,10 @@
         return map.at(key);                                                         \
     }
 
+// === Utilities ===
+
+#define MS_ASSERT_STATE(s, call) if ((s = call) != Status::SUCCESS) return s;
+
 namespace ms {
 
   using ulong = unsigned long;
@@ -43,7 +47,7 @@ namespace ms {
   using HMap = std::unordered_map<K, V, KeyHash>;
 
   template <typename K, typename V, typename KeyHash = std::hash<K>>
-  using HMapIt = std::unordered_map<K, V, KeyHash>::iterator;
+  using HMapIt = typename std::unordered_map<K, V, KeyHash>::iterator;
 
   struct Context;
 

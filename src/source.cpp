@@ -18,6 +18,7 @@ namespace ms {
     { "=",          Tok::OP_ASSIGN    },
 
     { ".",          Tok::OP_DOT				},
+    { ":",          Tok::OP_COLON     },
     { "...",        Tok::OP_ELLIPSIS 	},
 
 		{ "+",					Tok::OP_ADD 			},

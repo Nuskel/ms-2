@@ -66,6 +66,7 @@ namespace ms {
         std::string toString(EntityType type) {
             switch (type) {
                 case EntityType::VAR: return "VAR";
+                case EntityType::OBJECT: return "OBJECT";
                 case EntityType::PROTO: return "PROTO";
                 case EntityType::NAMESPACE: return "NAMESPACE";
                 case EntityType::MODULE: return "MODULE";
@@ -263,8 +264,9 @@ namespace ms {
             // str << stretch(info.a, 13);
             str << info.name;
 
-            if (info.params == 2) {
-                str << SFmt<memloc>{}.toString(ins.target) << " " << SFmt<memloc>{}.toString(ins.target);
+            // TODO: loop: see below
+            if (ins.argCount == 0) {
+                str << ' ' << SFmt<memloc>{}.toString(ins.target) << " " << SFmt<memloc>{}.toString(ins.target);
             }
 
             /*

@@ -41,3 +41,19 @@ PUSH 0
 CALL @fun(print)
 PUSH intermediate(1)
 CALL @fun(print)
+
+---
+
+% target, lhs, rhs
+add G[0], L[0], L[:16]
+
+(A) MOV + Stack
+
+push global(0x2)
+push local(0x1)
+add
+pop local(0x2)
+
+(B) One call
+
+add local(0x2), local(0x1), global(0x2)

@@ -1,8 +1,10 @@
 #include <string>
 #include <iostream>
+#include <sstream>
 #include <typeinfo>
 
 #include "ms.hpp"
+#include "memory.hpp"
 
 namespace ms {
 
@@ -29,6 +31,10 @@ int main(int argc, char* argv[]) {
   using namespace ms;
 
   test();
+
+  if (true) {
+    return 0;
+  }
 
   //ms::printBanner();
   debug::printsf("$b<$2!$9> MultiScript 2.1");
@@ -72,8 +78,28 @@ int main(int argc, char* argv[]) {
   return 0;
 }
 
+void printMem(const ms::memory::Memory<char>& mem) {
+  for (size_t i = 0; i < mem.capacity; i++) {
+    std::cout << i << ": " << ms::toBinary(mem.data[i]) << '\n';
+  }
+
+  std::cout << std::endl;
+}
+
 void test() {
   using namespace ms;
 
   // TODO: test something
+  msx::Integral i1 = 0;
+  ms::memory::CellMemory mem(8);
+
+  printMem(mem.container);
+  mem.write<msx::Integral>(0, 15, 256);
+  printMem(mem.container);
+  
+  ms::memory::DataCell<msx::Integral> i = mem.read<msx::Integral>(0);
+  void* raw = (void*) (mem.container.data + 1);
+  int rawValue = *reinterpret_cast<int*>(raw);
+  std::cout << "RAW; base=" << (void*) mem.container.data << " .. raw=" << raw << " .. value=" << rawValue << '\n';
+  std::cout << "READ " << i.data << '\n';
 }

@@ -23,14 +23,21 @@ namespace ms {
   }
 
   Status InstructionBlock::append(Op op, OpArg arg0) {
-    Instruction i { op };
+    Instruction i { op, 1 };
+
+    // i.arg0 = arg0
+
+    if (nlabel.length() > 0) {
+      i.label = nlabel;
+      nlabel = "";
+    }
 
     instructions.push_back(i);
 
     // TODO: if debug
     const auto info = getOpInfo(op);
 
-    debug::printsf("`3%% %% %%", info.name);
+    debug::printsf("`3%% %%", info.name, arg0.type);
 
     return Status::SUCCESS;
   }

@@ -47,6 +47,7 @@ namespace ms {
     if (!leftChild) {
       leftChild = std::make_unique<Expression>();
       leftChild->isRoot = false;
+      leftChild->scope = scope;
     }
 
     return *leftChild;
@@ -56,6 +57,7 @@ namespace ms {
     if (!rightChild) {
       rightChild = std::make_unique<Expression>();
       rightChild->isRoot = false;
+      rightChild->scope = scope;
     }
 
     return *rightChild;

@@ -23,6 +23,8 @@ namespace ms {
    */
   Status compile(Context& ctx, Instructions& instructions);
 
+  Status parseObject(Context& ctx, Source& s, Expression& e, size_t from, size_t to, SRef<Object>& result);
+
   /* Parses an expression as long as the tokens seem to belong the active one.
    *
    * @param ctx -
@@ -30,6 +32,8 @@ namespace ms {
    * @param expr - Output of metadata
    */
   Status parseExpression(Context& ctx, Source& source, Expression& expr);
+
+  Status parseExpression(Context& ctx, Source& source, Expression& expr, size_t from, size_t to);
 
   size_t rightBound(Source& src, size_t pos);
 

@@ -39,6 +39,7 @@ namespace ms {
 
     // Control Operators
     OP_DOT,
+    OP_COLON,
     OP_ELLIPSIS,
 
     // Arithmetic Operators

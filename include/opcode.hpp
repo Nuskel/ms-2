@@ -21,17 +21,44 @@ namespace ms {
 
     /* POP <target> -- writes highest stack value to a memory cell */
     POP,
+
+    /* == FLOW == */
+
+    JMP,
+    JEZ,
+    JGZ,
+    JLZ,
     
     CALL,
     RET,
 
+    /* == ARITHMETICS == */
+
     ADD,
+    SUB,
+    MUL,
+    DIV,
+    MOD,
+
+    /* CMP -- A := pop(), B := pop, C := A - B, PUSH C; flag_cmp := C */
+    CMP,
+
+    /* == MEMORY == */
+
+    /* NEW <type> [<opts | size>] */
+    NEW,
+
+    /* FREE -- free(pop()) */
+    FREE,
 
     /* Create array */
     CARRAY,
 
     /* Delete array */
-    DARRAY
+    DARRAY,
+
+    /* Count field to get amount of instructions */
+    __count__
 
   };
 
@@ -50,6 +77,7 @@ namespace ms {
     { Op::LEA, OpInfo { Op::LEA, "LEA", 1 }},
 
     { Op::ADD, OpInfo { Op::ADD, "ADD", 2 }},
+    { Op::PUSH, OpInfo { Op::PUSH, "PUSH", 1 }},
     { Op::POP, OpInfo { Op::POP, "POP", 1 }},
 
     { Op::CARRAY, OpInfo { Op::CARRAY, "CARRAY", 0 }},
@@ -66,7 +94,8 @@ namespace ms {
       INTERMEDIATE_LABEL,
       LABEL,
       MEMLOC_LOCAL,
-      MEMLOC_GLOBAL
+      MEMLOC_GLOBAL,
+      STACK
 
     };
 
@@ -142,9 +171,12 @@ namespace ms {
     Op op;
     memloc source;
     memloc target;
+    std::vector<OpArg> args;
     std::string label;
+    size_t argCount {0};
 
     Instruction(Op operation) : op(operation) {}
+    Instruction(Op operation, size_t p_argCount) : op(operation), argCount(p_argCount) {}
 
     friend std::ostream& operator <<(std::ostream& stream, const Instruction& i) {
       return stream;

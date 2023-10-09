@@ -1,17 +1,48 @@
-proto List<T>:
+import misc.util
+import misc.regex
+import network as net
 
-  member data: [T];
-  
-  def add(e: T) forward data.append
+proto Location:
+
+  member world
+  member x, y, z
+
+  construct(string encoded):
+    once pattern = regex.compile('(.+),(\\d+),(\\d+),(\\d+)')
+
+    with groups = pattern.match(encoded):
+      self.world = groups[0]
+      self.x = number(groups[1])
+      self.y = number(groups[2])
+      self.z = number(groups[3])
+    end
+  end
 
 end
 
-def List<T>::map(fn: lambda(T, N)): List<N>
-  let tmp: List<N> = []
+proto NetPlayer as net.NetPeer:
 
-  for e in data do
-    tmp.add(fn(e))
+  member name
+  member location
+
+  construct():
+    self.NetPeer.handlers.handshake.add(self.__read_data)
   end
 
-  return tmp
+  def __read_data(net.Handshake handshake):
+    self.name = handshake.userdata.player.name
+    self.location = Location(handshake.userdata.player.location)
+  end
+
+end
+
+def connect(string host, string username):
+  net.peer = NetPlayer()
+
+  with connection = net.connect(host, 8701, userdata={ name: username }):
+    net.state.write(connection)
+    return (NetPlayer) net.peer
+  end
+
+  throw net.error
 end
