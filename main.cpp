@@ -2,9 +2,10 @@
 #include <iostream>
 #include <sstream>
 #include <typeinfo>
+#include <vector>
 
 #include "ms.hpp"
-#include "memory.hpp"
+#include "console.hpp"
 
 namespace ms {
 
@@ -27,14 +28,50 @@ namespace ms {
 
 void test();
 
+void abc() {
+  using namespace ms;
+}
+
 int main(int argc, char* argv[]) {
   using namespace ms;
 
-  test();
+  // test();
 
-  if (true) {
-    return 0;
+  console::Options opts ({
+    { .name = "file", .symbol = 'f', .reqval = true },
+    { .name = "compile", .symbol = 'c' }
+  });
+
+  std::vector<std::string> args;
+  int status = console::ConsoleOptions::read(opts, args, argc, argv);
+
+  debug::printsf("Status: %%", status);
+  debug::printsf("Compile? %%", opts.isset("compile"));
+
+  for (const auto& opt : opts.options) {
+    debug::printsf(" * %% (%%): %%", opt.name, opt.reqval, opt.value);
   }
+
+  for (const auto& arg : args) {
+    debug::printsf(" - %%", arg);
+  }
+
+  /**/
+
+  std::string entryFile;
+
+  if (args.size() < 2) {
+    debug::printsf("$0`1Error: expected file argument.");
+    debug::printsf("$0`1Usage: ms [-cf] $uFILE");
+
+    return -1;
+  } else if (args.size() == 2) {
+    entryFile = args[1];
+  }
+
+  // if (true) {
+  //   return 0;
+  // }
 
   //ms::printBanner();
   debug::printsf("$b<$2!$9> MultiScript 2.1");
@@ -44,12 +81,18 @@ int main(int argc, char* argv[]) {
 
   ctx.sourceLocations.push_back("scripts");
 
-  ms::registerSource(ctx, "ex.ms");
-  ms::registerSource(ctx, "ex.ms");
-  ms::registerSource(ctx, "test.ms");
-  ms::registerSource(ctx, "test2.ms");
+  // ms::registerSource(ctx, "ex.ms");
+  // ms::registerSource(ctx, "ex.ms");
+  // ms::registerSource(ctx, "test.ms");
+  // ms::registerSource(ctx, "test2.ms");
+  ms::registerSource(ctx, entryFile);
 
   ms::printSources(ctx);
+
+  if (!opts.isset("compile")) {
+    debug::printsf("Running compiled file ... %%", ctx.entrySource ? ctx.entrySource->name : "<missing source>");
+    return 0;
+  }
 
   // --
 
@@ -78,6 +121,8 @@ int main(int argc, char* argv[]) {
   return 0;
 }
 
+/*
+
 void printMem(const ms::memory::Memory<char>& mem) {
   for (size_t i = 0; i < mem.capacity; i++) {
     std::cout << i << ": " << ms::toBinary(mem.data[i]) << '\n';
@@ -103,3 +148,4 @@ void test() {
   std::cout << "RAW; base=" << (void*) mem.container.data << " .. raw=" << raw << " .. value=" << rawValue << '\n';
   std::cout << "READ " << i.data << '\n';
 }
+*/

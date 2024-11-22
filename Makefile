@@ -1,15 +1,13 @@
-CXX		 	 = g++
-CXXFLAGS = -std=c++20 -pedantic
-OUTPUT   = ms
+EXEC=ms
 
-SRC=src/*.cpp
-SRCS=$(wildcard $(SRC))
-INCLUDE_DIR=include
+run: build/$(EXEC)
+	./build/$(EXEC)
 
-all: clean $(OUTPUT)
+rebuild: build/Makefile
+	make -C build clean $(EXEC)
 
-$(OUTPUT): $(SRCS)
-	@$(CXX) $(CXXFLAGS) -I$(INCLUDE_DIR) $(SRCS) main.cpp -o $@
+cmake_make: cmake_build build/Makefile
+	make -C build
 
-clean:
-	@rm -f $(OUTPUT)
+cmake_build: CMakeLists.txt
+	cmake -S . -B build

@@ -61,6 +61,14 @@ namespace ms {
 
   };
 
+  struct CharHash {
+
+    size_t operator()(const char c) const {
+      return std::hash<int>{}((int) c);
+    }
+
+  };
+
 }
 
 #endif

@@ -1,0 +1,5 @@
+.data:
+    text str 'Hello world'
+
+.program:
+    add 

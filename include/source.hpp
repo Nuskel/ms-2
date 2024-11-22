@@ -144,6 +144,16 @@ namespace ms {
 
   };
 
+  struct SourceLocation {
+
+    Source* source  {nullptr};
+    uint tokenStart {0};
+    uint tokenEnd   {0};
+    uint line       {0};
+    uint column     {0};
+
+  };
+
   struct CodePos {
 
     uint line;

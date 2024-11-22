@@ -4,7 +4,18 @@
 #include <map>
 #include <string>
 
+#include "env.hpp"
+#include "context.hpp"
+
 namespace ms {
+
+    Status bootstrap(Context& ctx) {
+
+    }
+
+    Status execute(Context& ctx, int argc, char** argv) {
+        
+    }
 
 }
 

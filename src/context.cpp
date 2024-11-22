@@ -158,7 +158,7 @@ namespace ms {
       return debug::errorsf(s, "!", "failed to lex file");
 
     // set source meta
-    source->name = ms::filename(file); // w/o extension
+    source->name = ms::filename(file); // w/o extension; duplicates CAN happen
     source->file = path;
 
     // the first source is the entry source

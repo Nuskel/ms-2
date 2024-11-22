@@ -73,9 +73,57 @@ namespace ms {
          *  ASSIGN local:var(x), stack:pop  -- pop the object ref (self) and write to x (self = self) -> expression is now of type <proto:Number>
          */
 
+        using namespace ms::memory;
+
         memory::Data d0 = r.find(i.args[0]);
         memory::Data d1 = r.find(i.args[1]);
         memory::DataPos target = r.locateTarget(i);
+
+        /* Cases:
+         *  0 args:
+         *   add -> pop, pop; +, push
+         *  1 arg
+         *   add [source - a]; pop; +; push
+         *  2 args
+         *   add [a], [b] -> push result
+         *  3 args
+         *   add [target], [a], [b]
+         * 
+         *  [a, b: INTERMEDIATE | LOCAL_ADDRESS | GLOBAL_ADDRESS | STACK_POS]
+         *  [target: LOCAL_ADDRESS | GLOBAL_ADDRESS | PUSH_STACK ]
+         */
+
+        switch (i.args.size()) {
+            case 0:
+                break;
+
+            case 1: {
+                const IData lhs = r.load(i.args[0]);
+                const IData rhs = r.stack.pop<IData>();
+
+                IData result;
+
+                add(lhs, rhs, result);
+
+                r.stack.push(result);
+
+                break;
+            }
+
+            case 2: {
+                const OpArg& arg0 = i.args[0];
+
+                if (arg0.type == OpArg::Type::STACK) {
+                    
+                }
+
+                break;
+            }
+
+            default:
+                break;
+
+        }
 
         // *-- NEW:
         memory::IData _d0 = r.load(i.args[0]);

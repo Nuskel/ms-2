@@ -145,13 +145,13 @@ namespace ms {
     * The input must be null-terminated with the format of
     * [0-9]*
     */
-  template <size_t StringOffset = 0, typename StringContainer = std::string_view>
-  constexpr int parseInt(const StringContainer& s, const int base = 10) {
-    int i = 0, off = StringOffset, b = 1;
+  template <typename String = std::string_view>
+  constexpr int parseInt(const String& s, const int base = 10, const int offset = 0) {
+    int i = 0, off = offset, b = 1;
 
     while (s[off] && isDigit(s[off++]));
 
-    for (--off; off >= 0; off--) {
+    for (--off; off >= offset; off--) {
       i += (s[off] - '0') * b;
       b *= base;
     }

@@ -14,6 +14,30 @@
 
 namespace ms {
 
+  class CompUnit {
+
+    private:
+      Instructions instructions;
+
+  };
+
+  class Compiler {
+
+    public:
+      Compiler(Context& context) : ctx(context) {}
+
+      Status compile();
+
+    private:
+      Context& ctx;
+      CompUnit unit; // current
+
+  };
+
+}
+
+namespace ms {
+
   Status parse(Context& ctx, Instructions& i);
 
   Status parse(Context& ctx, Source& source, Instructions& i);

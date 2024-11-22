@@ -20,6 +20,14 @@ namespace ms {
 
 namespace ms {
 
+  Status Compiler::compile() {
+    unit.instructions.append("");
+  }
+
+}
+
+namespace ms {
+
   Status parse(Context& ctx, Instructions& ins) {
     if (!ctx.entrySource)
       return ctx.throwd(Status::FAIL, "requires at least one lexed source loaded");
