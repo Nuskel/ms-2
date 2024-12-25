@@ -3,6 +3,7 @@
 #include <sstream>
 #include <typeinfo>
 #include <vector>
+#include <functional>
 
 #include "ms.hpp"
 #include "console.hpp"
@@ -32,10 +33,102 @@ void abc() {
   using namespace ms;
 }
 
+template <typename T, typename... Rest>
+inline void hashCombine(std::size_t &seed, T const &v, Rest &&... rest) {
+    std::hash<T> hasher;
+    seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    (int[]){0, (hashCombine(seed, std::forward<Rest>(rest)), 0)...};
+}
+
+struct OpFn {
+
+  size_t ltype;
+  size_t rtype;
+  size_t op;
+
+  bool operator ==(const OpFn& other) const {
+    return ltype == other.ltype && rtype == other.rtype && op == other.op;
+  }
+
+};
+
+struct HASHER {
+  auto operator ()(const OpFn& fn) const -> size_t {
+    size_t hash = 0;
+    hashCombine(hash, fn.ltype, fn.rtype, fn.op);
+    return hash;
+  }
+};
+
 int main(int argc, char* argv[]) {
   using namespace ms;
+  using namespace ast;
 
   // test();
+
+  if (false) {
+    size_t i1 = 123;
+    size_t i2 = 932;
+    size_t i3 = 555;
+
+    std::unordered_map<OpFn, char, HASHER> map;
+
+    map.emplace(std::make_pair<OpFn, char>({1, 2, 3}, 'A'));
+
+    debug::printsf("%%", map.find({1, 2, 3})->second);
+
+    struct IType {
+
+      long id; // type class: int, str, obj, proto
+      long M;  // proto id: proto.X
+
+    };
+
+    struct IData {
+
+      IType type;
+      long data;
+
+    };
+
+    /*
+    Runtime-Bsp: add $1, $2
+
+    t1 := $1.type.id
+    t2 := $2.type.id
+    fn := op_fn[OpFn{t1,t2,OP_ADD}]
+
+    call fn
+    
+    */
+
+   // map.emplace(std::make_pair(OpFn{1, 2, 3}, 'A'));
+   // map.emplace(std::make_pair(OpFn{8, 7, 6}, 'B'));
+
+    //debug::printsf("Hash: %% : %%", hash, hash % 7);
+
+    return 0;
+  }
+
+  if (false) {
+    ProgramNode program {"test"};
+
+    Status s1 = append(&program.block, makeNode<VarDecl>("i1", types::VarScope::Local));
+    Status s2 = append(&program, makeNode<VarDecl>("i2", types::VarScope::Local));
+    Status s3 = append(&program.block, makeNode<VarDecl>("i3", types::VarScope::Global));
+
+    std::vector<VarDecl*> decls = nodesByType<VarDecl>(program.block.nodes);
+    debug::printsf("DECLS %% of %%", decls.size(), (int) TypedNode<VarDecl>::DEF_TYPE);
+
+    debug::printsf("Tree: %%", (int) program.base.type);
+    debug::printsf(" .decl: %%", (int) program.block.nodes[0]->base.type);
+
+    debug::printsf("%%, %%", s1, s2);
+
+    ast::print(&program);
+
+    return 0;
+  }
 
   console::Options opts ({
     { .name = "file", .symbol = 'f', .reqval = true },
@@ -91,6 +184,33 @@ int main(int argc, char* argv[]) {
 
   if (!opts.isset("compile")) {
     debug::printsf("Running compiled file ... %%", ctx.entrySource ? ctx.entrySource->name : "<missing source>");
+    return 0;
+  }
+
+  if (true) {
+    ms::Compiler compiler(ctx);
+
+    for (size_t i = 0; i < ctx.entrySource->tokenCount(); i++) {
+      const Token& token = ctx.entrySource->tokens[i];
+
+      debug::printsf(" -- (%%) $6%% %%$r (%%:%%)", i, token.type, token.value, token.line, token.col);
+    }
+
+    ctx.makeCurrent(ctx.entrySource);
+
+    Status s { Status::Success };
+
+    if ((s = compiler.generateAST(*ctx.entrySource)) != Status::Success) {
+      ctx.throwd(s, "failed to generate AST");
+      //return 0;
+    }
+
+    if (ctx.inErrorState()) {
+      ctx.logErrors(true);
+    } else {
+      ast::print(compiler.programTree());
+    }
+
     return 0;
   }
 

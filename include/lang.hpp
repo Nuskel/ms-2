@@ -23,6 +23,22 @@ namespace ms {
 
 }
 
+namespace ms::lang {
+
+  struct Error {
+
+    Status status { Status::Fail };
+    std::string message;
+    SourceLocation location;
+
+    Error() {}
+    Error(const Status pStatus, const std::string& pMessage, const SourceLocation& pLocation) :
+      status(pStatus), message(pMessage), location(pLocation) {}
+
+  };
+
+}
+
 namespace ms {
 
   struct TraceElement {

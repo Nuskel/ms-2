@@ -15,6 +15,12 @@
 
 namespace ms {
 
+  struct Source;
+
+}
+
+namespace ms {
+
   enum class Tok {
 
     UNKNOWN,
@@ -27,7 +33,11 @@ namespace ms {
      */
     KW_IMPORT,
     KW_MODULE,
+    KW_END,
     KW_DEF,
+    KW_RETURN,
+
+    KW_INTERNAL,
 
     KW_LET,
 
@@ -39,6 +49,7 @@ namespace ms {
 
     // Control Operators
     OP_DOT,
+    OP_COMMA,
     OP_COLON,
     OP_ELLIPSIS,
 
@@ -48,6 +59,8 @@ namespace ms {
 		OP_MUL,
 		OP_DIV,
 		OP_MOD,
+
+    OP_NOT,
 
 		OP_LEFT_PARENTHESIS,
 		OP_RIGHT_PARENTHESIS,
@@ -78,7 +91,7 @@ namespace ms {
 
   struct Token {
 
-    Tok type;
+    Tok type {Tok::UNKNOWN};
     std::string value;
     ulong line {0};
     ulong col {0};
@@ -88,6 +101,20 @@ namespace ms {
       long long integral = 0;
       long double decimal;
     };
+
+  };
+
+  struct SourceLocation {
+
+    const Source* source {nullptr};
+    size_t start  {0};
+    size_t end    {0};
+    size_t line   {0};
+    size_t column {0};
+
+    SourceLocation() {}
+    SourceLocation(const Source* pSource, const size_t pStart = -1, const size_t pEnd = -1) :
+      source(pSource), start(pStart), end(pEnd) {}
 
   };
 
@@ -124,11 +151,18 @@ namespace ms {
      */
     Status readIdentifier(std::string&, long position = -1);
 
-    std::string getLine(uint line);
+    std::string getLine(size_t line) const;
 
     std::string getMarkedLine(uint line, uint from, uint to);
 
+    /* Write a (possibly) marked line from the source to the output stream. */
+    std::ostream& write(std::ostream& stream, const SourceLocation& location, bool marker = false) const;
+
     std::string concat(uint from, uint to);
+
+    inline bool peekType(const size_t i, const Tok expected) const {
+      return i < tokens.size() ? tokens[i].type == expected : false; 
+    }
 
     inline bool validIndex(long index) {
       return index >= 0 && index < tokenCount();
@@ -138,19 +172,9 @@ namespace ms {
       return (token + amount) < tokenCount();
     }
 
-    inline size_t tokenCount() {
+    inline size_t tokenCount() const {
       return tokens.size();
     }
-
-  };
-
-  struct SourceLocation {
-
-    Source* source  {nullptr};
-    uint tokenStart {0};
-    uint tokenEnd   {0};
-    uint line       {0};
-    uint column     {0};
 
   };
 

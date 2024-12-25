@@ -1,5 +1,6 @@
 #include "compiler.hpp"
 #include "lang.hpp"
+#include "types.hpp"
 #include "env.hpp"
 #include "misc.hpp"
 #include "sformats.hpp"
@@ -20,8 +21,886 @@ namespace ms {
 
 namespace ms {
 
-  Status Compiler::compile() {
-    unit.instructions.append("");
+  Status Compiler::enterScope(ast::Tree scope) {
+    if (!scope)
+      return Status::Fail;
+
+    debug::printsf("$3{Scope}: %% > %%", ast::type(ast.scope), ast::type(scope));
+
+    ast.layers.emplace(ast.scope);
+    ast.scope = scope;
+
+    /* if we are in a function, keep track of it */
+    if (ast::NodeType::FnDecl == ast::type(scope))
+      ast.function = static_cast<ast::FnDecl*>(scope);
+
+    return Status::Success;
+  }
+
+  Status Compiler::leaveScope() {
+    if (ast.layers.size() > 0) {
+      ast::Tree scope { ast.layers.top() };
+
+      debug::printsf("$3{Scope}: %% > %%", ast::type(ast.scope), ast::type(scope));
+
+      /* cannot leave Program scope again */
+      if (ast::NodeType::Program == ast::type(ast.scope))
+        return Status::HighestScope;
+
+      /* if the old scope is a function, keep track of it */
+      if (ast::NodeType::FnDecl == ast::type(scope)) {
+        ast.function = static_cast<ast::FnDecl*>(scope);
+      } else {
+        ast.function = nullptr;
+      }
+
+      ast.scope = scope;
+      ast.layers.pop();
+
+      return Status::Success;
+    }
+
+    return Status::HighestScope;
+  }
+
+  // TODO: SHOULD BE JUST FOR A SINGLE MODULE!
+  Status Compiler::generateAST(Source& source) {
+    using namespace ast;
+
+    if (SourceState::LEXED != source.state)
+      return ctx.throwd(Status::kFail, "source must be lexed to be compiled");
+
+    Status s { Status::kSuccess };
+    size_t i = 0; // token
+    size_t l = 0; // line
+
+    // TODO: outsource program
+    ProgramNode* program = ast.program.get();
+
+    if ((s = enterScope(program)) != Status::Success)
+      return ctx.throwd(s, i, "could not enter program scope");
+
+    UPtr<ModuleNode> modulePtr { makeNode<ModuleNode>(source.name, source) };
+    ModuleNode* moduleNode = modulePtr.get(); 
+
+    if ((s = append(program, std::move(modulePtr))) != Status::Success)
+      return ctx.throwd(s, "could not begin module AST");
+
+    ast.program->modules.emplace(source.name, moduleNode);
+
+    if ((s = enterScope(moduleNode)) != Status::Success)
+      return ctx.throwd(s, i, "could not enter module scope");
+    
+    Tree& scope { ast.scope };
+
+    debug::printsf("[AST] Module: %%", moduleNode->name);
+    debug::printsf("[AST] Source: %%", source.name);
+
+    for (; i < source.tokenCount(); i++) {
+      const Token& token = source.tokens[i];
+
+      debug::printsf(" -- (%%) $6%% %%$r (%%:%%)", i, token.type, token.value, token.line, token.col);
+
+      switch (token.type) {
+        case Tok::UNKNOWN:
+          break;
+
+        case Tok::KW_IMPORT: {
+          std::string ident;
+          ++i;
+
+          if ((s = source.readIdentifier(ident, i)) != Status::SUCCESS)
+            return ctx.throwd(s, i + 1, "expected an identifier");
+
+          UPtr<ImportStmt> node { makeNode<ImportStmt>(ident) };
+          ImportStmt* stmt = node.get();
+
+          if ((s = append(scope, std::move(node))) != Status::Success)
+            return ctx.throwd(s, i, "failed to add import statement");
+
+          debug::printsf("[import] %%", stmt->name);
+
+          break;
+        }
+
+        case Tok::KW_DEF: {
+          UPtr<FnDecl> declPtr;
+          size_t end = i;
+
+          if ((s = generateFnDefAST(source, i + 1, end, declPtr)) != Status::Success)
+            return ctx.throwd(s, i, end, "failed to parse function declaration");
+
+          FnDecl* decl { declPtr.get() };
+
+          if ((s = append(scope, std::move(declPtr))) != Status::Success)
+            return ctx.throwd(s, i, end, "failed to register function declaration");
+
+          i = end - 1;
+
+          debug::printsf("[def] declared: %%", decl->name);
+
+          if ((s = enterScope(decl)) != Status::Success)
+            return ctx.throwd(s, i, "could not enter function scope");
+
+          break;
+        }
+
+        case Tok::KW_LET: {
+          std::string ident;
+          ++i;
+
+          if ((s = source.readIdentifier(ident, i)) != Status::SUCCESS)
+            return ctx.throwd(s, i, "expected an identifier");
+
+          // TODO: outsource
+          types::VarScope varScope;
+
+          switch (ast::type(ast.block)) {
+            case NodeType::Module:
+              varScope = types::VarScope::Global;
+              break;
+
+            default:
+              varScope = types::VarScope::None;
+              break;
+          }
+
+          if ((s = append(scope, makeNode<VarDecl>(ident, varScope))) != Status::Success)
+            return ctx.throwd(s, i, "failed to add var declaration");
+
+          debug::printsf("[let] %%", ident);
+
+          break;
+        }
+
+        case Tok::OP_ASSIGN: {
+          /*
+          std::string ident;
+
+          if ((s = source.readIdentifier(ident, i - 1)) != Status::SUCCESS)
+            return ctx.throwd(s, i - 1, "expected an identifier");
+
+          ast::VarDecl* varDecl = findFirst<ast::VarDecl>(scope, ast::NodeType::VarDecl, [&](const ast::VarDecl& decl) { return decl.name == ident; });
+
+          if (!varDecl)
+            return ctx.throwd(Status::FAIL, i - 1, "unknown target for assignment: %%", ident);
+          */
+
+          size_t targetStart = leftBound(source, i);
+          size_t targetEnd = i;
+          ast::Expression target(scope, targetStart, targetEnd);
+
+          if ((s = generateExprAST(source, target)) != Status::Success)
+            return ctx.throwd(s, targetStart, targetEnd, "invalid target expression");
+
+          size_t start = i + 1;
+          size_t end = rightBound(source, start);
+          ast::Expression expr(scope, start, end);
+
+          /* next token is "def" -> assignment to an inline fn */
+          if (source.peekType(i + 1, Tok::KW_DEF)) {
+            UPtr<FnDecl> declPtr;
+            size_t end = i + 2;
+
+            generateFnDefAST(source, i + 2, end, declPtr);
+
+            FnDecl* inlineDecl { declPtr.get() };
+
+            ast.program->inlineFnDecls.push_back(std::move(declPtr));
+            expr.node = std::move(makeNode<ast::InlineFnDeclExpr>(inlineDecl));
+          } else {
+            if ((s = generateExprAST(source, expr)) != Status::Success)
+              return ctx.throwd(s, start, end, "failed to parse expression");
+
+            if (expr.empty)
+              return ctx.throwd(Status::Fail, start, end, "expected expression for assignment");
+          }
+
+          UPtr<AssignStmt> stmt = makeNode<AssignStmt>();
+
+          stmt->target = std::move(target.node);
+          stmt->expr = std::move(expr.node);
+          stmt->location = SourceLocation(&source, i);
+
+          if ((s = append(scope, std::move(stmt))) != Status::Success)
+            return ctx.throwd(s, i, end, "failed to parse assignment");
+
+          i = end - 1;
+
+          debug::printsf("[assign] %% = %%", "??", "??");
+
+          break;
+        }
+
+        case Tok::KW_END: {
+          if (NodeType::Module == ast::type(scope))
+            return ctx.throwd(Status::HighestScope, i, "already in module scope");
+
+          if ((s = leaveScope()) != Status::Success)
+            return ctx.throwd(s, i, "could not leave scope");
+
+          break;
+        }
+
+        case Tok::KW_RETURN: {
+          size_t start = i + 1;
+          size_t end = rightBound(source, start);
+          ast::Expression expr(scope, start, end);
+
+          if ((s = generateExprAST(source, expr)) != Status::Success)
+            return ctx.throwd(s, start, end, "unexpected expression");
+
+          debug::printsf("Return: %%", expr.nodeType());
+          // TODO: Node
+
+          i = end - 1;
+        }
+
+        case Tok::IDENTIFIER: {
+          size_t start = i;
+          size_t end = rightBound(source, start);
+          ast::Expression expr(scope, start, end);
+
+          if ((s = generateExprAST(source, expr)) != Status::Success)
+            return ctx.throwd(s, start, end, "unexpected expression");
+
+          if (expr.node) {
+            if ((s = append(scope, std::move(expr.node))) != Status::Success)
+              return ctx.throwd(s, start, end, "failed to append to scope");
+          }
+
+          i = end - 1;
+
+          break;
+        }
+
+        default: {
+          return ctx.throwd(Status::Fail, i, "unexpected token: %%", token.value);
+        }
+      }
+    }
+
+    if (!scope || NodeType::Module != ast::type(scope))
+      return ctx.throwd(s, i - 1, "unclosed scope: %%", ast::type(scope));
+
+    if ((s = leaveScope()) != Status::Success)
+      return ctx.throwd(s, i - 1, "could not leave module scope");
+
+    // scope should be program again
+
+    return s;
+  }
+
+  /* ----- FUNCTIONS ------ */
+
+  Status appendFnNameAndMods(Context&, ast::ASTContext&, Source&, size_t&, ast::FnDecl*);
+  Status appendFnParams(Compiler&, Context&, Source&, size_t&, ast::FnDecl*);
+  Status appendFnSuffix(Context&, Source&, size_t&, ast::FnDecl*);
+
+  Status Compiler::generateFnDefAST(Source& source, size_t i, size_t& end, UPtr<ast::FnDecl>& result) {
+    using namespace ast;
+
+    Status s { Status::Success };
+    size_t start = i;
+
+    UPtr<FnDecl> declPtr { makeNode<FnDecl>() };
+    FnDecl* decl = declPtr.get();
+
+    // TODO: better as param (scope)
+    decl->parent = ast.scope;
+
+    if ((s = appendFnNameAndMods(ctx, ast, source, i, decl)) != Status::Success)
+      return s;
+
+    if ((s = appendFnParams(*this, ctx, source, i, decl)) != Status::Success)
+      return s;
+
+    if ((s = appendFnSuffix(ctx, source, i, decl)) != Status::Success)
+      return s;
+
+    debug::printsf("[fn] %%, %% mods", decl->name, decl->mods.size());
+
+    end = i + 1;
+    result = std::move(declPtr);
+
+    return Status::Success;
+  }
+
+  Status appendFnNameAndMods(Context& ctx, ast::ASTContext& ast, Source& source, size_t& i, ast::FnDecl* decl) {
+    Status s { Status::Success};
+
+    /* (1) Read modifiers and name: */
+    for (; i < source.tokenCount(); i++) {
+      const Token& token = source.tokens[i];
+      const Tok tok = token.type;
+
+      if (tok == Tok::OP_LEFT_PARENTHESIS) {
+        break;
+      }
+
+      switch (tok) {
+        case Tok::IDENTIFIER: {
+          /* current block */
+          if (ast.block) {
+
+          }
+
+          // TODO: valid name!
+
+          decl->name = token.value;
+          break;
+        }
+
+        case Tok::KW_INTERNAL: {
+          decl->mods.push_back(types::FnMod::Internal);
+          break;
+        }
+
+        default:
+          return ctx.throwd(Status::Fail, i, "expected either the function name or a modifier: %%", token.value);
+      }
+    }
+
+    return s;
+  }
+
+  Status appendFnParams(Compiler& c, Context& ctx, Source& source, size_t& i, ast::FnDecl* decl) {
+    using namespace ast;
+
+    Status s { Status::Success };
+
+    /* empty param list */
+    if ((i + 1) < source.tokenCount() && Tok::OP_RIGHT_PARENTHESIS == source.tokens[i + 1].type) {
+      return s;
+    }
+
+    /* Param:
+     *  [type] {name} [= initialValue]
+     */
+    UPtr<ParamDecl> param { makeNode<ParamDecl>() };
+
+    for (++i; i < source.tokenCount(); i++) {
+      const Token& token = source.tokens[i];
+      const Tok tok = token.type;
+
+      if (tok == Tok::OP_RIGHT_PARENTHESIS) {
+        if ((s = append(&decl->params, std::move(param))) != Status::Success)
+          return ctx.throwd(s, i, "could not add param");
+
+        break;
+      }
+
+      switch (tok) {
+        case Tok::IDENTIFIER: {
+          if ((i + 1) < source.tokenCount()) {
+            const Token& next = source.tokens[i + 1];
+
+            switch (next.type) {
+              case Tok::OP_ASSIGN:
+              case Tok::OP_COMMA:
+              case Tok::OP_RIGHT_PARENTHESIS: {
+                // token must be the identifier
+
+                // TODO: validate
+                param->name = token.value;
+
+                break;
+              }
+
+              case Tok::IDENTIFIER: {
+                // token must be a type name
+
+                if (param->typeGuard.isset())
+                  return ctx.throwd(Status::Fail, i + 1, "excess guard type: %%", token.value);
+
+                TypeDecl* type = ast::findFirst<TypeDecl>(decl, NodeType::TypeDecl, [&](const TypeDecl& decl) { return decl.name == token.value; });
+
+                if (!type)
+                  return ctx.throwd(Status::Fail, i + 1, "unknown type: %%", token.value);
+
+                // TODO: real TypeDecl
+                param->typeGuard.decl = type;
+
+                break;
+              }
+
+              default:
+                return ctx.throwd(s, i + 1, "unexpected token in parameter pack: %%", next.value);
+            }
+          } else {
+            return ctx.throwd(s, i, "unexpected function declaration end");
+          }
+
+          param->name = token.value;
+          break;
+        }
+
+        case Tok::OP_ELLIPSIS: {
+          debug::printsf("[+param] ...");
+          break;
+        }
+
+        case Tok::OP_ASSIGN: {
+          size_t start = i + 1;
+          size_t end = start;
+
+          bool searching = true;
+          int nesting = 0;
+
+          for (; searching && end < source.tokenCount(); end++) {
+            const Token& paramToken = source.tokens[end];
+
+            /* Try to find the next comma or closing parenthesis of the function header.
+             * In case of initial values, {} and other brackets may be used to initialize
+             * objects, expressions or the user just uses () around some trivial stuff.
+             * While the nesting is active, commas or closing parenthesis do not dictate
+             * the end of the parameter list, but are part of the initial value.
+             * This helper skips to the real end.
+             */
+            switch (paramToken.type) {
+              case Tok::OP_LEFT_CURLY:
+              case Tok::OP_LEFT_BRACKET:
+              case Tok::OP_LEFT_PARENTHESIS:
+                nesting++; break;
+
+              case Tok::OP_RIGHT_CURLY:
+              case Tok::OP_RIGHT_BRACKET:
+                nesting--; break;
+
+              case Tok::OP_RIGHT_PARENTHESIS: {
+                if (!nesting) {
+                  searching = false;
+                  break;
+                } else {
+                  nesting--;
+                  break;
+                }
+              }
+
+              case Tok::OP_COMMA: {
+                if (!nesting) {
+                  searching = false;
+                  break;
+                }
+              }
+
+              default:
+                break;
+            }
+          }
+
+          --end;
+          ast::Expression expr(decl, start, end);
+
+          if ((s = c.generateExprAST(source, expr)) != Status::Success)
+            return ctx.throwd(s, start, end, "failed to parse expression");
+
+          debug::printsf("(param %%) initial value: %%", param->name, ast::type(expr.node.get()));
+
+          i = end - 1;
+          param->initialValue = std::move(expr.node);
+
+          break;
+        }
+
+        case Tok::OP_COMMA: {
+          if ((s = append(&decl->params, std::move(param))) != Status::Success)
+            return ctx.throwd(s, i, "could not add param");
+
+          // next possible param
+          param = std::move(makeNode<ParamDecl>());
+
+          break;
+        }
+
+        default:
+          return ctx.throwd(Status::Fail, i, "unexpected token in param list: %%", token.value);
+      }
+    }
+
+    return s;
+  }
+
+  Status appendFnSuffix(Context& ctx, Source& source, size_t& i, ast::FnDecl* decl) {
+    ++i;
+
+    if (i >= source.tokenCount())
+      return Status::Fail; // source end
+
+    if (source.tokens[i].type != Tok::OP_COLON)
+      return ctx.throwd(Status::Fail, i, "expected :");
+
+    return Status::Success;
+  }
+
+  /* ----------- */
+
+  Status parseParenthesis(Context& ctx,
+    const Tok tok, const Tok open, const Tok close,
+    long type, long* ps, long* pe, long* pdepth, size_t i);
+
+  Status Compiler::generateExprAST(Source& source, ast::Expression& expr) {
+    using namespace ast;
+
+    Status s { Status::Success };
+    size_t start = expr.start;
+    size_t end = expr.end;
+    size_t len = end - start;
+
+    debug::printsf("<EXPR %%-%%: %%> $5%%", start, end, expr.purpose, source.concat(start, end));
+
+    if (len == 0) {
+      expr.empty = true;
+      return Status::Success; // ctx.throwd(Status::Fail, start, "expected a valid token");
+    }
+
+    if (len == 1) {
+      const Token& token = source.tokens[start];
+
+      switch (token.type) {
+        case Tok::OP_COMMA: {
+          /* Comma expansion with no sub expressions (,,) -> ("", ",") will split on comma
+           * and call this method with just a single comma. If the expansion is used in a
+           * function call, the behavior is allowed since this just assumes an undefined
+           * param value at that (or any) position.
+           */
+          if (expr.purpose & FuncParams)
+            return Status::Success;
+
+          return ctx.throwd(Status::Fail, start, "unexpected single comma");
+        }
+
+        case Tok::OP_NOT: {
+          // NotExpr
+
+          return Status::Success;
+        }
+
+        case Tok::IDENTIFIER: {
+          if (expr.purpose & MemberRef) {
+            expr.node = std::move(makeNode<RefExpr>(Symbol(token.value)));
+
+            debug::printsf(" $5%% $r%%", NodeType::RefExpr, token.value);
+          } else if (expr.purpose & FuncName) {
+
+            /* TODO: when used via referencing chain "x.y.z()" no check necessary -> mustt be deduced differently ..
+             */
+
+            /*
+            const auto fnDecl = findFirst<FnDecl>(expr.scope, NodeType::FnDecl, [&](const FnDecl& decl) { return decl.name == token.value; });
+
+            if (!fnDecl)
+              return ctx.throwd(Status::Fail, start, "unknown function: %%", token.value);
+            */
+
+            expr.node = std::move(makeNode<FnCall>(Symbol(token.value)));
+
+            debug::printsf(" $5%% $r%%", NodeType::FnCall, token.value);
+          } else {
+            // TODO: not just for var!
+            if (!isVarDecl(expr.scope, token.value))
+              return ctx.throwd(Status::Fail, start, "unknown symbol: %%", token.value);
+
+            expr.node = std::move(makeNode<RefExpr>(Symbol(token.value)));
+
+            debug::printsf(" $5%% $r%%", NodeType::RefExpr, token.value);
+          }
+
+          return Status::Success;
+        }
+
+        case Tok::L_INTEGRAL:
+        case Tok::L_DECIMAL:
+        case Tok::L_STRING: {
+          expr.node = std::move(makeNode<LiteralExpr>(token.integral, nullptr));
+
+          debug::printsf(" $5%% $r%% [%%]", NodeType::LiteralExpr, token.integral, nullptr);
+
+          return Status::Success;
+        }
+
+        default:
+          return ctx.throwd(Status::Fail, start, "unexpected token: %%", token.value);
+      }
+    }
+
+    /* precedence */
+    int p = 0;
+    int mp = 3;
+
+    /* parenthesis control */
+    long ps[4] = {-1, -1, -1, -1}; // start index of first opening occurence
+    long pe[4] = {-1, -1, -1, -1}; // end index of last closing occurence
+    long pdepth[4] = {0, 0, 0, 0}; // amount of closing tokens needed to build pairs
+
+    for (size_t i = start; i < end; i++) {
+      const Token& token = source.tokens[i];
+      const Tok tok = token.type;
+
+      // -- parenthesis control
+
+      /* NOTE: brackets cannot be parsed with a simple precedence.
+        * When there are no arithmetic operators on the level of the bracket, the bracket
+        * gets parsed first. But if otherwise, the arithmetic operator has the
+        * higher precedence and must be the main anchor.
+        * e.g.:
+        *  a) a[0 + 1] -> first parse [], then 0 + 1
+        *  b) a[0] + 1 -> first parse +, then []
+        * Therefore, use the exclusing mechanic below instead of
+        * simply checking for the precendence of brackets.
+        */
+      
+      MS_ASSERT_STATE(s, parseParenthesis(ctx, tok, Tok::OP_LEFT_PARENTHESIS, Tok::OP_RIGHT_PARENTHESIS, 0, ps, pe, pdepth, i))
+      MS_ASSERT_STATE(s, parseParenthesis(ctx, tok, Tok::OP_LEFT_BRACKET, Tok::OP_RIGHT_BRACKET, 1, ps, pe, pdepth, i))
+      MS_ASSERT_STATE(s, parseParenthesis(ctx, tok, Tok::OP_LEFT_CURLY, Tok::OP_RIGHT_CURLY, 2, ps, pe, pdepth, i))
+
+      /* Whenever a parenthesis is present in the current level,
+       * the scoped content gets parsed later. All precedences
+       * of normal operators are parsed on this level before.
+       */
+      if ((pdepth[0] | pdepth[1] | pdepth[2] | pdepth[3]) > 0)
+        continue;
+
+      // == operators ==
+
+      /*
+      
+      TODO: + and - can be treated as unary operators as well -> decide by precedence!
+      
+      */
+
+      if (p == 2 && tok == Tok::OP_ADD) {
+        ast::Expression left(expr.scope, start, i);
+        ast::Expression right(expr.scope, i + 1, end);
+
+        if ((s = generateExprAST(source, left)) != Status::Success)
+          return ctx.throwd(s, start, i, "invalid expression");
+
+        if ((s = generateExprAST(source, right)) != Status::Success)
+          return ctx.throwd(s, i + 1, end, "invalid expression");
+
+        UPtr<BinaryExpr> binExpr = makeNode<BinaryExpr>();
+
+        binExpr->op = types::Operator::Add;
+        binExpr->left = std::move(left.node);
+        binExpr->right = std::move(right.node);
+
+        debug::printsf("== $6%% (%%)", binExpr->op, binExpr->base.type);
+
+        expr.node = std::move(binExpr);
+
+        break;
+      }
+
+      if (p == 2 && tok == Tok::OP_SUB) {
+        ast::Expression left(expr.scope, start, i);
+        ast::Expression right(expr.scope, i + 1, end);
+
+        if ((s = generateExprAST(source, left)) != Status::Success)
+          return ctx.throwd(s, start, i, "invalid expression");
+
+        if ((s = generateExprAST(source, right)) != Status::Success)
+          return ctx.throwd(s, i + 1, end, "invalid expression");
+
+        UPtr<BinaryExpr> binExpr = makeNode<BinaryExpr>();
+
+        binExpr->op = types::Operator::Sub;
+        binExpr->left = std::move(left.node);
+        binExpr->right = std::move(right.node);
+
+        debug::printsf("== $6%% (%%)", binExpr->op, binExpr->base.type);
+
+        expr.node = std::move(binExpr);
+
+        break;
+      }
+
+      // array
+
+      /* Comma Operator , */
+      if (p == 1 && tok == Tok::OP_COMMA) {
+        /* Parsing a comma list is done by recursively expanding to the right.
+         * The left side of the operator is added to the current comma expression
+         * which gets set up by the first occurance. While expanding to the right,
+         * all left parts are getting added as well. The node of the right expression
+         * is only added on the last expansion step.
+         * 
+         *  1, 2, 3 -> 1 | 2, 3 -> 2 | 3
+         *             ^   ^
+         *      (+) left   right
+         *                      -> 2 | 3
+         *                         ^   ^
+         *                  (+) left   right (+)
+         * 
+         *  (+): sub expressions gets added to the comma expression vector
+         * 
+         * A side effect of this method is that higher level right side expressions
+         * do not return a sub expression node (see the first right in the example).
+         * This right expressions just serves as a structure element that will not
+         * be used to be added to the result list (since it was it self parsed to
+         * smaller parts before). This is relevant to prevent duplicate or empty
+         * node additions!
+         */
+
+        UPtrList<ExprNode>* nodes = expr.nodes;
+        bool leftMost = false;
+
+        if (!nodes) {
+          leftMost = true;
+          expr.node = std::move(makeNode<CommaExpr>());
+          nodes = &static_cast<CommaExpr*>(expr.node.get())->exprs;
+        }
+
+        ast::Expression left(expr.scope, start, i);
+        ast::Expression right(expr.scope, i + 1, end);
+
+        /* propagate the current list to the sub expressions */
+        left.nodes = right.nodes = nodes;
+
+        /* share the expr purpose as it applies to each element */
+        left.purpose = right.purpose = expr.purpose;
+
+        if ((s = generateExprAST(source, left)) != Status::Success)
+          return ctx.throwd(s, start, i, "invalid expression");
+
+        /* Always add the left side of the comma expansion. The check for the node is
+         * still necessary since the left side could have been an empty expression and
+         * thus we would add a null node. (e.g. k = (, 3))
+         */
+        if (left.hasNode())
+          nodes->push_back(std::move(left.node));
+
+        if ((s = generateExprAST(source, right)) != Status::Success)
+          return ctx.throwd(s, i + 1, end, "invalid expression");
+
+        /* Only add the element as the right-most expansion step. */
+        if (right.hasNode())
+          nodes->push_back(std::move(right.node));
+
+        /* Optimization: comma expressions with only one real element will be substituted to the one element.  */
+        if (leftMost && expr.nodeType() == NodeType::CommaExpr && nodes->size() == 1) {
+          expr.node = std::move((*nodes)[0]);
+          expr.nodes = nullptr;
+        }
+
+        debug::printsf("== $6, %% elem(s)", nodes->size());
+
+        break;
+      }
+
+      /* Dot Operator . */
+      if (p == 3 && tok == Tok::OP_DOT) {
+
+        /* 2 Cases:
+         *  1) parent is 
+         *  2) __.system(void)[0]('copy')
+         */
+
+        ast::Expression left(expr.scope, start, i);
+        ast::Expression right(expr.scope, i + 1, end);
+
+        // left.purpose = right.purpose = 0;
+
+        if (expr.purpose & MemberRef)
+          left.purpose = MemberRef;
+        
+        right.purpose = MemberRef;
+
+        generateExprAST(source, left);
+        generateExprAST(source, right);
+
+        if (right.hasNode()) {
+          
+        }
+
+        expr.node = std::move(left.node);
+
+        debug::printsf("REF: %%.%%", left.nodeType(), right.nodeType());
+
+        break;
+      }
+
+      // == parenthesis ==
+
+      /* Parenthesis, brackets, arrows, ... are not checked by the token type here
+       * since the detection was already done. At this point, just check that we
+       * have a beginning and end of a certain type (and the correct precedence).
+       */
+
+      /* Parenthesis () */
+      if (p == 3 && ps[0] != -1 && pe[0] != -1) {
+        /* Parsing () is done by first checking the left side which might be a function
+         * name or unary operator. Depening of the result, the inner part has to be
+         * interpreted differently. So, parse left first, then the inner expression.
+         */
+
+        size_t lstart = start;
+        size_t lend = ps[0];
+        ast::Expression left(expr.scope, lstart, lend); // left(inner)
+        
+        left.purpose = FuncName | OpNot; // unary in general
+
+        if ((s = generateExprAST(source, left)) != Status::Success)
+          return ctx.throwd(s, lstart, lend, "invalid expression");
+
+        size_t pstart = ps[0] + 1;
+        size_t pend = pe[0];
+        ast::Expression inner(expr.scope, pstart, pend); // left(inner)
+
+        inner.purpose = FuncParams;
+
+        /* When we know that the inner part of the parenthesis is the parameter list
+         * for a function call, we can simply pass the params vector to the expression.
+         * The inner expression will add to the node list in case of a comma list.
+         */
+        FnCall* fnCall {nullptr};
+
+        if (left.nodeType() == NodeType::FnCall) {
+          fnCall = static_cast<FnCall*>(left.node.get());
+          inner.nodes = &fnCall->params;
+
+          /* No need to check for return type since runtime will decide (undefined on
+           * void functions). This is needed since fn decls can be overwritten so we
+           * do not know the exact runtime type yet.
+           */
+        }
+
+        if ((s = generateExprAST(source, inner)) != Status::Success)
+          return ctx.throwd(s, pstart, pend, "invalid expression");
+
+        debug::printsf(" $4()");
+
+        /* reset parenthesis status */
+        pdepth[0] = 0;
+        ps[0] = pe[0] = -1;
+
+        /* Case: function call */
+        if (fnCall) {
+          /* exactly one param given -> comma expression did not append, so we have to do it here */
+          if (inner.nodeCount() == 1)
+            fnCall->params.push_back(std::move(inner.node));
+          
+          expr.node = std::move(left.node);
+        } else {
+         /* Just propagate the inner expression to the upper expression. This will also
+          * prevent stacking expression creations in cases like '((1 + 2))' as the inner
+          * most expressions gets passed through since () do not create a new Expr object.
+          */
+          expr.node = std::move(inner.node);
+        }
+
+        break;
+      }
+
+      /* reiterate to a higher precedence */
+      if (i == (end - 1) && ++p <= mp)
+        i = (start - 1);
+    }
+
+    if (p > mp)
+      return ctx.throwd(Status::Fail, start, end, "no operator applies");
+
+    return s;
   }
 
 }
@@ -232,7 +1111,7 @@ namespace ms {
     const Tok tok, const Tok open, const Tok close,
     long type, long* ps, long* pe, long* pdepth, size_t i) {
     /* parsing left to right
-    
+
     if (content == open) {
         if (ps[type] == -1)
             ps[type] = i;
@@ -249,6 +1128,24 @@ namespace ms {
     }
     */
 
+    //debug::printsf("%%: tok=%% ps=%% pe=%% pdepth=%%", i, tok, ps[type], pe[type], pdepth[type]);
+
+    if (tok == open) {
+      if (ps[type] == -1)
+        ps[type] = i;
+
+      pdepth[type]++;
+    } else if (tok == close) {
+      pdepth[type]--;
+
+      if (!pdepth[type] && pe[type] == -1)
+        pe[type] = i;
+
+      if (pdepth[type] < 0)
+        return ctx.throwd(Status::Fail, i, "scope operator '%%' has no partner", close);
+    }
+
+    /*
     // parsing right to left <- currently used
     if (tok == open) {
         pdepth[type]--;
@@ -264,6 +1161,7 @@ namespace ms {
 
         pdepth[type]++;
     }
+    */
 
     //debug::printsf(" '%%' %%%% - level %%", content, open, close, pdepth[type]);
 
@@ -802,7 +1700,7 @@ namespace ms {
       const Tok tok = token.type;
       const TokenClass tc = classifyToken(tok);
 
-      debug::printsf(" - %% '%%' = %% .. %% --> %%", tok, token.value, (int) tc, r, i);
+      //debug::printsf(" - %% '%%' = %% .. %% --> %%", tok, token.value, (int) tc, r, i);
 
       if (tc == TokenClass::KEYWORD)
         return i;
@@ -822,6 +1720,40 @@ namespace ms {
     }
 
     return src.tokens.size();
+  }
+
+  size_t leftBound(Source& src, size_t pos) {
+    int cohesion = 2;
+    int r = 0;
+
+    if (pos == 0)
+      return 0;
+
+    for (size_t i = pos - 1; i >= 0; i--) {
+      const Token& token = src.tokens[i];
+      const Tok tok = token.type;
+      const TokenClass tc = classifyToken(tok);
+
+      // debug::printsf(" - %% '%%' = %% .. %% --> %%", tok, token.value, (int) tc, r, i);
+
+      if (tc == TokenClass::KEYWORD)
+        return i + 1;
+      else if (tc == TokenClass::OPERATOR) {
+        // a type of parenthesis MUST be followed by an operator // TODO: no -> 2 + (2)
+        /* NO SPECIAL TREATMENT
+        if (isParenthesis(tok))
+          r = 0;
+        else
+        */
+          r = 0;
+      } else
+        r++;
+
+      if (r == cohesion)
+        return i + 1;
+    }
+
+    return 0;
   }
 
   // --

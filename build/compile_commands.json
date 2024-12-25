@@ -1,0 +1,57 @@
+[
+{
+  "directory": "/mnt/d/Projects/MyScript/ms-2/build",
+  "command": "/usr/bin/g++  -I/mnt/d/Projects/MyScript/ms-2/include -g -Wcomment -std=gnu++20 -o CMakeFiles/ms.dir/src/compiler.cpp.o -c /mnt/d/Projects/MyScript/ms-2/src/compiler.cpp",
+  "file": "/mnt/d/Projects/MyScript/ms-2/src/compiler.cpp"
+},
+{
+  "directory": "/mnt/d/Projects/MyScript/ms-2/build",
+  "command": "/usr/bin/g++  -I/mnt/d/Projects/MyScript/ms-2/include -g -Wcomment -std=gnu++20 -o CMakeFiles/ms.dir/src/context.cpp.o -c /mnt/d/Projects/MyScript/ms-2/src/context.cpp",
+  "file": "/mnt/d/Projects/MyScript/ms-2/src/context.cpp"
+},
+{
+  "directory": "/mnt/d/Projects/MyScript/ms-2/build",
+  "command": "/usr/bin/g++  -I/mnt/d/Projects/MyScript/ms-2/include -g -Wcomment -std=gnu++20 -o CMakeFiles/ms.dir/src/debug.cpp.o -c /mnt/d/Projects/MyScript/ms-2/src/debug.cpp",
+  "file": "/mnt/d/Projects/MyScript/ms-2/src/debug.cpp"
+},
+{
+  "directory": "/mnt/d/Projects/MyScript/ms-2/build",
+  "command": "/usr/bin/g++  -I/mnt/d/Projects/MyScript/ms-2/include -g -Wcomment -std=gnu++20 -o CMakeFiles/ms.dir/src/env.cpp.o -c /mnt/d/Projects/MyScript/ms-2/src/env.cpp",
+  "file": "/mnt/d/Projects/MyScript/ms-2/src/env.cpp"
+},
+{
+  "directory": "/mnt/d/Projects/MyScript/ms-2/build",
+  "command": "/usr/bin/g++  -I/mnt/d/Projects/MyScript/ms-2/include -g -Wcomment -std=gnu++20 -o CMakeFiles/ms.dir/src/lang.cpp.o -c /mnt/d/Projects/MyScript/ms-2/src/lang.cpp",
+  "file": "/mnt/d/Projects/MyScript/ms-2/src/lang.cpp"
+},
+{
+  "directory": "/mnt/d/Projects/MyScript/ms-2/build",
+  "command": "/usr/bin/g++  -I/mnt/d/Projects/MyScript/ms-2/include -g -Wcomment -std=gnu++20 -o CMakeFiles/ms.dir/src/memory.cpp.o -c /mnt/d/Projects/MyScript/ms-2/src/memory.cpp",
+  "file": "/mnt/d/Projects/MyScript/ms-2/src/memory.cpp"
+},
+{
+  "directory": "/mnt/d/Projects/MyScript/ms-2/build",
+  "command": "/usr/bin/g++  -I/mnt/d/Projects/MyScript/ms-2/include -g -Wcomment -std=gnu++20 -o CMakeFiles/ms.dir/src/misc.cpp.o -c /mnt/d/Projects/MyScript/ms-2/src/misc.cpp",
+  "file": "/mnt/d/Projects/MyScript/ms-2/src/misc.cpp"
+},
+{
+  "directory": "/mnt/d/Projects/MyScript/ms-2/build",
+  "command": "/usr/bin/g++  -I/mnt/d/Projects/MyScript/ms-2/include -g -Wcomment -std=gnu++20 -o CMakeFiles/ms.dir/src/opcode.cpp.o -c /mnt/d/Projects/MyScript/ms-2/src/opcode.cpp",
+  "file": "/mnt/d/Projects/MyScript/ms-2/src/opcode.cpp"
+},
+{
+  "directory": "/mnt/d/Projects/MyScript/ms-2/build",
+  "command": "/usr/bin/g++  -I/mnt/d/Projects/MyScript/ms-2/include -g -Wcomment -std=gnu++20 -o CMakeFiles/ms.dir/src/source.cpp.o -c /mnt/d/Projects/MyScript/ms-2/src/source.cpp",
+  "file": "/mnt/d/Projects/MyScript/ms-2/src/source.cpp"
+},
+{
+  "directory": "/mnt/d/Projects/MyScript/ms-2/build",
+  "command": "/usr/bin/g++  -I/mnt/d/Projects/MyScript/ms-2/include -g -Wcomment -std=gnu++20 -o CMakeFiles/ms.dir/src/ast.cpp.o -c /mnt/d/Projects/MyScript/ms-2/src/ast.cpp",
+  "file": "/mnt/d/Projects/MyScript/ms-2/src/ast.cpp"
+},
+{
+  "directory": "/mnt/d/Projects/MyScript/ms-2/build",
+  "command": "/usr/bin/g++  -I/mnt/d/Projects/MyScript/ms-2/include -g -Wcomment -std=gnu++20 -o CMakeFiles/ms.dir/main.cpp.o -c /mnt/d/Projects/MyScript/ms-2/main.cpp",
+  "file": "/mnt/d/Projects/MyScript/ms-2/main.cpp"
+}
+]

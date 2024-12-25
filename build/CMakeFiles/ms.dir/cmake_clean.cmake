@@ -1,6 +1,8 @@
 file(REMOVE_RECURSE
   "CMakeFiles/ms.dir/main.cpp.o"
   "CMakeFiles/ms.dir/main.cpp.o.d"
+  "CMakeFiles/ms.dir/src/ast.cpp.o"
+  "CMakeFiles/ms.dir/src/ast.cpp.o.d"
   "CMakeFiles/ms.dir/src/compiler.cpp.o"
   "CMakeFiles/ms.dir/src/compiler.cpp.o.d"
   "CMakeFiles/ms.dir/src/context.cpp.o"

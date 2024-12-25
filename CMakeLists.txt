@@ -21,6 +21,7 @@ add_executable(ms
     src/misc.cpp
     src/opcode.cpp
     src/source.cpp
+    src/ast.cpp
     main.cpp
 )
 

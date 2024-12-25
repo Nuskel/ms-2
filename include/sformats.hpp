@@ -6,6 +6,8 @@
 #include "source.hpp"
 #include "lang.hpp"
 #include "context.hpp"
+#include "ast.hpp"
+#include "types.hpp"
 
 namespace ms {
     
@@ -34,18 +36,25 @@ namespace ms {
                 case Tok::IDENTIFIER: return "IDENTIFIER";
 
                 case Tok::KW_MODULE: return "KW_MODULE";
+                case Tok::KW_IMPORT: return "KW_IMPORT";
                 case Tok::KW_DEF: return "KW_DEF";
+                case Tok::KW_RETURN: return "KW_RETURN";
+
                 case Tok::KW_LET: return "KW_LET";
 
                 case Tok::KW_IF: return "KW_IF";
                 case Tok::KW_ELSE: return "KW_ELSE";
 
-                case Tok::OP_ASSIGN: return "KW_ASSIGN";
+                case Tok::OP_ASSIGN: return "OP_ASSIGN";
 
                 case Tok::OP_DOT: return "OP_DOT";
+                case Tok::OP_COMMA: return "OP_COMMA";
                 case Tok::OP_ELLIPSIS: return "OP_ELLIPSIS";
 
                 case Tok::OP_ADD: return "OP_ADD";
+                case Tok::OP_SUB: return "OP_SUB";
+                case Tok::OP_MUL: return "OP_MUL";
+                case Tok::OP_DIV: return "OP_DIV";
 
                 case Tok::OP_LEFT_PARENTHESIS: return "OP_LEFT_PARENTHESIS";
                 case Tok::OP_RIGHT_PARENTHESIS: return "OP_RIGHT_PARENTHESIS";
@@ -56,6 +65,34 @@ namespace ms {
 
                 default:
                 return std::string("(Token) ") + std::to_string((int) tok);
+            }
+        }
+    };
+
+    template <>
+    struct SFmt<ast::NodeType> {
+        std::string toString(ast::NodeType type) {
+            switch (type) {
+                case ast::NodeType::None: return "None";
+                case ast::NodeType::Program: return "Program";
+                case ast::NodeType::Module: return "Module";
+                case ast::NodeType::ImportStmt: return "ImportStmt";
+                case ast::NodeType::AssignStmt: return "AssignStmt";
+                case ast::NodeType::TypeDecl: return "TypeDecl";
+                case ast::NodeType::TypeRef: return "TypeRef";
+                case ast::NodeType::FnDecl: return "FnDecl";
+                case ast::NodeType::VarDecl: return "VarDecl";
+                case ast::NodeType::LiteralExpr: return "LiteralExpr";
+                case ast::NodeType::RefExpr: return "RefExpr";
+                case ast::NodeType::BinaryExpr: return "BinaryExpr";
+                case ast::NodeType::CommaExpr: return "CommaExpr";
+                case ast::NodeType::FnCall: return "FnCall";
+                case ast::NodeType::ProgramBlock: return "ProgramBlock";
+                case ast::NodeType::ParamsBlock: return "ParamsBlock";
+                case ast::NodeType::FnBodyBlock: return "FnBodyBlock";
+
+                default:
+                    return std::string("(NodeType) ") + std::to_string((int) type);
             }
         }
     };
@@ -158,6 +195,24 @@ namespace ms {
 
         std::string toString(const TypedValue& tv) {
             return debug::format("{%%, %%}", SFmt<Value>{}.toString(tv.value), SFmt<Type>{}.toString(tv.type));
+        }
+
+    };
+
+    template <>
+    struct SFmt<types::Operator> {
+
+        std::string toString(types::Operator op) {
+            switch (op) {
+                case types::Operator::Add: return "+";
+                case types::Operator::Sub: return "-";
+                case types::Operator::Mul: return "*";
+                case types::Operator::Div: return "/";
+                case types::Operator::Comma: return ",";
+
+                default:
+                    return std::string("(Operator) ") + std::to_string((int) op);
+            }
         }
 
     };

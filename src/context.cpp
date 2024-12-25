@@ -1,4 +1,5 @@
 #include "context.hpp"
+#include "sformats.hpp"
 
 namespace ms {
 
@@ -115,6 +116,22 @@ namespace ms {
     }
 
     return s;
+  }
+
+  void Context::logErrors(bool onlyRoot) {
+    size_t count {errors.size()};
+
+    if (onlyRoot && count > 0)
+      count = 1;
+
+    for (size_t i = 0; i < count; i++) {
+      const lang::Error& e = errors[i];
+
+      debug::printsf_ignore_debug_mode("$1[Error@%%] <$r$1$b%%$r$1> %%", "Comp", e.status, e.message);
+
+      if (e.location.source)
+        e.location.source->write(std::cout, e.location, true);
+    }
   }
 
   void Context::logTrace() {

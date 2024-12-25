@@ -2,6 +2,7 @@
 #define MS_ENV_HPP
 
 #include <memory>
+#include <vector>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -29,10 +30,18 @@
 
 #define MS_ASSERT_STATE(s, call) if ((s = call) != Status::SUCCESS) return s;
 
+#define MS_STMT_MAKRO(X) do { X } while (false)
+
 namespace ms {
 
   using ulong = unsigned long;
   using uint  = unsigned int;
+
+  template <typename T>
+  using UPtr = std::unique_ptr<T>;
+
+  template <typename T>
+  using UPtrList = std::vector<UPtr<T>>;
 
   template <typename T>
   using URef = std::unique_ptr<T>;
@@ -51,9 +60,22 @@ namespace ms {
 
   struct Context;
 
-  enum Status {
+  enum class Status : int {
 
-    SUCCESS,
+    kNone = 0,
+    kSuccess,
+    kFail,
+    kFailDuplicate,
+    kInternal,
+
+    None = 50,
+    Success,
+    Fail,
+
+    HighestScope,
+    InvalidNodeType,
+
+    SUCCESS = 100,
     FAIL,
     FAIL_DUPLICATE,
     INTERNAL,

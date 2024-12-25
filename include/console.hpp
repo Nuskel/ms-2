@@ -63,6 +63,8 @@ namespace ms::console {
         template <int N>
         static int read2(const Option (&options)[N], std::vector<std::string>& args, int argc, char** argv) {
             std::vector<Option> f { options };
+
+            return 0;
         }
 
         static int read(Options& opts, std::vector<std::string>& args, const int argc, char** argv) {

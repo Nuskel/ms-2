@@ -5,6 +5,7 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <iostream>
 #include <initializer_list>
 #include <memory>
 
@@ -110,6 +111,17 @@ namespace ms {
   template <typename B, typename D>
   inline std::shared_ptr<D> derive(std::shared_ptr<B> base) {
     return std::dynamic_pointer_cast<D>(base);
+  }
+
+  // https://stackoverflow.com/a/36120483
+  template<typename T, typename F>
+  std::unique_ptr<T> unique_ptr_cast(std::unique_ptr<F>&& ptr){
+    return std::unique_ptr<T>{static_cast<T*>(ptr.release())};
+  }
+
+  template<typename T, typename F>
+  std::unique_ptr<T> move_cast(std::unique_ptr<F>&& ptr) {
+    return std::unique_ptr<T>({static_cast<T*>(ptr.release())});
   }
 
   inline bool fexists(const std::string& filename) {

@@ -9,15 +9,22 @@ namespace ms {
   MS_VALUE_MAP(std::string, Tok) tokenMap {
     // key words
     { "module",     Tok::KW_MODULE 		},
+    { "import",     Tok::KW_IMPORT    },
+    { "end",        Tok::KW_END       },
+
     { "def",        Tok::KW_DEF 			},
+    { "return",     Tok::KW_RETURN    },
     { "if",         Tok::KW_IF 				},
     { "else",       Tok::KW_ELSE 			},
     { "let",        Tok::KW_LET       },
+
+    { "internal",   Tok::KW_INTERNAL  },
 
     // operators
     { "=",          Tok::OP_ASSIGN    },
 
     { ".",          Tok::OP_DOT				},
+    { ",",          Tok::OP_COMMA     },
     { ":",          Tok::OP_COLON     },
     { "...",        Tok::OP_ELLIPSIS 	},
 
@@ -112,6 +119,10 @@ namespace ms {
 
           i += 2;
           lexer.pos += 2;
+        } else if (c == 10 /* new line */) {
+          lexer.col = 0;
+          lexer.scol = 0;
+          lexer.line++;
         }
 
         continue;
@@ -128,13 +139,15 @@ namespace ms {
           lexer.append(c);
         }
 
+        // TODO: break on \n?
+
         continue;
       }
 
       switch (c) {
         case 10 /* new line */:
           lexer.commit();
-          lexer.col = -1;
+          lexer.col = 0;
           lexer.scol = 0;
           lexer.line++;
 
@@ -143,6 +156,7 @@ namespace ms {
         // -- flush last token
         case ' ':
           lexer.commit();
+          lexer.col += 1;
 
           break;
 
@@ -172,6 +186,11 @@ namespace ms {
 
             break;
           }
+
+          lexer.commit();
+          lexer.push(Tok::OP_SUB, c);
+
+          break;
         }
 
         // -- tokens starting with '.'
@@ -213,7 +232,8 @@ namespace ms {
           break;
       }
 
-      lexer.col++;
+      lexer.scol++;
+      //lexer.col++;
       lexer.pos++;
     }
 
@@ -248,9 +268,11 @@ namespace ms {
           t.value = content;
           t.type = Tok::L_INTEGRAL;
           t.line = line;
-          t.col = scol;
+          t.col = col;
           t.tcol = tcol;
           t.integral = parseInt(content);
+
+          col += t.value.length();
 
           source.tokens.push_back(t);
         } else
@@ -260,7 +282,7 @@ namespace ms {
     }
 
     // start column of next token is next token
-    scol = col + 1;
+    // scol = col + 1;
 
     resetBuf();
   }
@@ -271,8 +293,10 @@ namespace ms {
     t.value = buf.str();
     t.type = tok;
     t.line = line;
-    t.col = scol;
+    t.col = col;
     t.tcol = tcol;
+
+    col += t.value.length();
 
     source.tokens.push_back(t);
   }
@@ -283,8 +307,10 @@ namespace ms {
     t.value = std::string(1, c);
     t.type = tok;
     t.line = line;
-    t.col = scol;
+    t.col = col;
     t.tcol = tcol;
+
+    col += t.value.length();
 
     source.tokens.push_back(t);
   }
@@ -295,15 +321,17 @@ namespace ms {
     t.value = std::to_string(c);
     t.type = strToTok(t.value);
     t.line = line;
-    t.col = scol;
+    t.col = col;
     t.tcol = tcol;
+
+    col += t.value.length();
 
     source.tokens.push_back(t);
   }
 
   // SOURCE
 
-  std::string Source::getLine(uint line) {
+  std::string Source::getLine(size_t line) const {
     if (line >= lines)
       return "";
     
@@ -322,34 +350,109 @@ namespace ms {
     return code.substr(begin, i - begin);
   }
 
-  std::string Source::getMarkedLine(uint line, uint from, uint to) {
+  std::string Source::getMarkedLine(uint line, uint from /* actual string pos, NOT token pos! */, uint to) {
     std::stringstream buf;
     std::string lstr { getLine(line) };
-    int offset = file.length() + 5;
+    int offset = 0; // length of (file|line:column)
     
     // offset += std::log10(line + 1) + 1;
-    offset += std::log10(from + 1) + 1;
+    //offset += std::log10(from + 1) + 1;
 
     buf << debug::Console::Modifier(debug::ChatColor::FG_RED);
-    buf << "(" << file << "|" << (line + 1) << ":" << (from + 1) << '-' << (to) << ") ";
+    offset -= buf.str().length(); // ignore styling
+    
+    if (from == to) {
+      buf << "(" << file << "|" << (line + 1) << ":" << (from + 1) << ") ";
+      offset += buf.str().length();
+    } else {
+      buf << "(" << file << "|" << (line + 1) << ":" << (from + 1) << '-' << (to + 1) << ") ";
+      offset += buf.str().length();
+    }
+
     buf << debug::Console::Modifier(debug::ChatColor::FG_WHITE);
     buf << lstr;
     
     if (to < from)
       buf << "...";
     
-    buf << '\n' << std::string(from + offset, ' ');
+    buf << '\n' << std::string(offset + from, ' ');
     buf << debug::Console::Modifier(debug::ChatColor::FG_RED);
 
     if (from == to) {
       buf << "^";
     } else if (to > from) {
-      buf << "^" << std::string(to - from, '~');
+      //buf << "^" << std::string(to - from, '~');
+      buf << from << " .. " << to;
     }
 
     debug::resetStream(buf);
 
     return buf.str();
+  }
+
+  std::ostream& Source::write(std::ostream& stream, const SourceLocation& location, bool marker) const {
+    /* we need the token for line and column; else nothing to do here */
+    if (location.start == -1 || location.start >= tokenCount())
+      return stream;
+    
+    const size_t end = location.end - 1; /* get inclusive end token */
+    const Token& from = tokens[location.start];
+    const size_t line = from.line + 1;
+    const size_t colFrom = from.col + 1;
+
+    size_t offset {0};
+    size_t range {1};
+
+    stream << debug::Console::Modifier(debug::ChatColor::FG_RED);
+
+    /* Just print the position and simple marker when:
+     *  a) end is set to -1 (not present)
+     *  b) end is invalid (>= max tokens || <= start)
+     */
+    if (location.end == -1 || end >= tokenCount() || end <= location.start) {
+      stream << '(' << file << '|' << line << ':' << colFrom << ") ";
+      
+      offset += 5;
+      offset += file.length();
+      offset += std::log10(line) + 1;
+      offset += std::log10(colFrom) + 1;
+    } else {
+      const Token& to = tokens[end];
+      const size_t colTo = to.col + 1;
+
+      stream << '(' << file << '|' << line << ':' << colFrom << '-' << colTo << ") ";
+      
+      offset += 6;
+      offset += file.length();
+      offset += std::log10(line) + 1;
+      offset += std::log10(colFrom) + 1;
+      offset += std::log10(colTo) + 1;
+
+      range = colTo - colFrom;
+    }
+
+    stream << debug::Console::Modifier(debug::ChatColor::FG_WHITE);
+    stream << getLine(from.line);
+
+    if (marker) {
+      offset += from.col;
+
+      stream << '\n';
+      stream << std::string(offset, ' ');
+      stream << debug::Console::Modifier(debug::ChatColor::FG_RED);
+      stream << '^';
+
+      if (range == 1)
+        stream << std::string(from.value.length() - 1 /* 1 for ^ */, '~');
+      if (range > 1 && range < 99 /* max length */)
+        stream << std::string(range, '~');
+    }
+
+    stream << '\n';
+
+    debug::resetStream(stream);
+
+    return stream;
   }
 
   std::string Source::concat(uint from, uint to) {
